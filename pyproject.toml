@@ -1,0 +1,59 @@
+[project]
+name = "centhesus"
+description = "A package for synthesising the 2021 Census from public data"
+authors = [
+    {name = "Henry Wilde"},
+    {name = "Data Science Campus", email = "datacampus@ons.gov.uk"}
+]
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT License"}
+dependencies = [
+    "numpy",
+    "pandas",
+    "private-pgm@git+https://github.com/ryan112358/private-pgm",
+]
+dynamic = ["version"]
+
+[build-system]
+requires = ["setuptools>=62"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {attr = "centhesus.__version__"}
+
+[project.optional-dependencies]
+test = [
+    "hypothesis",
+    "pytest",
+    "pytest-cov",
+    "pytest-randomly",
+]
+lint = [
+    "black>=22.6.0,<23",
+    "ruff>=0.1.1",
+]
+dev = [
+    "centhesus[test,lint]",
+    "pytest-sugar",
+]
+
+[project.urls]
+homepage = "https://github.com/datasciencecampus/centhesus"
+
+[tool.black]
+line-length = 79
+
+[tool.coverage.report]
+omit = ["src/**/__init__.py"]
+
+[tool.ruff]
+extend-select = ["D", "I", "W"]
+ignore = ["D105", "D107", "D202"]
+line-length = 79
+
+[tool.ruff.isort]
+known-first-party = ["centhesus"]
+
+[tool.ruff.pydocstyle]
+convention = "numpy"
