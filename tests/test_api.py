@@ -3,6 +3,7 @@
 import json
 from unittest import mock
 
+import pandas as pd
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -198,3 +199,35 @@ def test_extract_records_from_observations(observations, use_id):
         assert count == observation["observation"]
         for i, dimension in enumerate(dimensions):
             assert dimension == observation["dimensions"][i][option]
+
+
+@given(st_records_and_queries(), st.booleans())
+def test_query_table_valid(records_and_query, use_id):
+    """Test that the querist can create a data frame."""
+
+    records, population_type, area_type, dimensions = records_and_query
+
+    api = CensusAPI()
+
+    with mock.patch(
+        "centhesus.api.CensusAPI._query_table_json"
+    ) as query, mock.patch(
+        "centhesus.api._extract_records_from_observations"
+    ) as extract:
+        query.return_value = {"observations": "foo"}
+        extract.return_value = records
+
+        data = api.query_table(population_type, area_type, dimensions, use_id)
+
+    assert isinstance(data, pd.DataFrame)
+    assert len(data) == len(records)
+
+    expected_columns = [area_type, *dimensions, "count", "population_type"]
+    assert data.columns.to_list() == expected_columns
+    assert (data["population_type"].unique() == population_type).all()
+
+    for i, row in data.drop("population_type", axis=1).iterrows():
+        assert tuple(row) == records[i]
+
+    query.assert_called_once_with(population_type, area_type, dimensions)
+    extract.assert_called_once_with("foo", use_id)
