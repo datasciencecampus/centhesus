@@ -12,6 +12,7 @@ dependencies = [
     "numpy",
     "pandas",
     "private-pgm@git+https://github.com/ryan112358/private-pgm",
+    "requests",
 ]
 dynamic = ["version"]
 

@@ -8,14 +8,26 @@ from hypothesis import strategies as st
 from centhesus import CensusAPI
 
 MOCK_URL = "mock://test.com/"
+CensusAPI._root = MOCK_URL
+
+
+@st.composite
+def st_names(draw):
+    """Create a name for an item in a JSON response."""
+
+    parts = draw(st.lists(st.text(min_size=1), min_size=5, max_size=10))
+    name = "-".join(parts)
+
+    return name
 
 
 @st.composite
 def st_jsons(draw):
     """Create a JSON response for property-based testing."""
 
-    num_items = draw(st.integers(1, 30))
-    json = {"items": [{"name": draw(st.text())} for _ in range(num_items)]}
+    num_items = draw(st.integers(1, 10))
+    items = [{"name": draw(st_names())} for _ in range(num_items)]
+    json = {"items": items}
 
     return json
 
@@ -25,36 +37,29 @@ def test_init():
 
     api = CensusAPI()
 
-    assert (
-        api._root
-        == CensusAPI._root
-        == "https://api.beta.ons.gov.uk/v1/population-types"
-    )
-
-    assert api.populations is None
-    assert api.areas_by_population is None
-    assert api.dimensions_by_population is None
+    assert api._root == MOCK_URL
     assert api._current_data is None
+    assert api._current_url is None
 
 
-@given(st_jsons(), st.integers(100, 1000))
-def test_get(json, status):
+@given(st.dictionaries(st.text(), st.text()))
+def test_get(json):
     """Test that the API only gives data from successful responses."""
 
     api = CensusAPI()
 
-    with mock.patch("centhesus.api.requests.get") as requests_get:
+    with mock.patch("centhesus.api.requests.get") as get, mock.patch(
+        "centhesus.api.CensusAPI._process_response"
+    ) as process:
         response = mock.MagicMock()
-        requests_get.return_value = response
-        response.status_code = status
-        response.json.return_value = json
+        get.return_value = response
+        process.return_value = json
 
         data = api.get(MOCK_URL)
 
-    if 200 <= status <= 299:
-        assert data == json
-    else:
-        assert data is None
+    assert api._current_url == MOCK_URL
+    assert api._current_data == data
+    assert data == json
 
-    requests_get.assert_called_once_with(MOCK_URL, verify=True)
-    response.json.assert_called_once()
+    get.assert_called_once_with(MOCK_URL, verify=True)
+    process.assert_called_once_with(response)
