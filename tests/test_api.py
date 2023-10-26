@@ -211,10 +211,10 @@ def test_query_table_valid(records_and_query, use_id):
 
     with mock.patch(
         "centhesus.api.CensusAPI._query_table_json"
-    ) as query, mock.patch(
+    ) as querist, mock.patch(
         "centhesus.api._extract_records_from_observations"
     ) as extract:
-        query.return_value = {"observations": "foo"}
+        querist.return_value = {"observations": "foo"}
         extract.return_value = records
 
         data = api.query_table(population_type, area_type, dimensions, use_id)
@@ -229,5 +229,24 @@ def test_query_table_valid(records_and_query, use_id):
     for i, row in data.drop("population_type", axis=1).iterrows():
         assert tuple(row) == records[i]
 
-    query.assert_called_once_with(population_type, area_type, dimensions)
+    querist.assert_called_once_with(population_type, area_type, dimensions)
     extract.assert_called_once_with("foo", use_id)
+
+
+@given(
+    st_table_queries(),
+    st.one_of((st.just(None), st.dictionaries(st.integers(), st.text()))),
+)
+def test_query_table_invalid(query, result):
+    """Test the querist returns nothing if the call is unsuccessful."""
+
+    api = CensusAPI()
+
+    with mock.patch("centhesus.api.CensusAPI._query_table_json") as querist:
+        querist.return_value = result
+
+        data = api.query_table(*query)
+
+    assert data is None
+
+    querist.assert_called_once_with(*query)
