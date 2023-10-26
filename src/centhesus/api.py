@@ -53,7 +53,8 @@ class CensusAPI:
                         f"Status code: {response.status_code}",
                         response.body,
                     )
-                )
+                ),
+                UserWarning,
             )
             return data
 
@@ -62,8 +63,9 @@ class CensusAPI:
         except json.JSONDecodeError as e:
             warnings.warn(
                 "\n".join(
-                    (f"Error decoding data from {self._current_url}:", e)
-                )
+                    (f"Error decoding data from {self._current_url}:", str(e))
+                ),
+                UserWarning,
             )
 
         return data
