@@ -8,8 +8,30 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from centhesus import CensusAPI
+from centhesus.constants import (
+    API_ROOT,
+    AREA_TYPES_BY_POPULATION_TYPE,
+    DIMENSIONS_BY_POPULATION_TYPE,
+    POPULATION_TYPES,
+)
 
 MOCK_URL = "mock://test.com/"
+
+
+@st.composite
+def table_queries(draw):
+    """Create a set of table query parameters for a test."""
+
+    population_type = draw(st.sampled_from(POPULATION_TYPES))
+
+    dimensions_available = DIMENSIONS_BY_POPULATION_TYPE[population_type]
+    dimensions = draw(
+        st.lists(st.sampled_from(dimensions_available), min_size=1, max_size=3)
+    )
+    area_types_available = AREA_TYPES_BY_POPULATION_TYPE[population_type]
+    area_type = draw(st.sampled_from(area_types_available))
+
+    return population_type, dimensions, area_type
 
 
 def test_init():
@@ -93,3 +115,27 @@ def test_get(json):
 
     get.assert_called_once_with(MOCK_URL, verify=True)
     process.assert_called_once_with(response)
+
+
+@given(table_queries(), st.dictionaries(st.text(), st.text()))
+def test_query_table(query, json):
+    """Test that the table querist makes URLs and returns correctly."""
+
+    population_type, dimensions, area_type = query
+    url = (
+        f"{API_ROOT}/{population_type}/census-observations"
+        f"?area-type={area_type}&dimensions={','.join(dimensions)}"
+    )
+
+    api = CensusAPI()
+
+    with mock.patch("centhesus.api.CensusAPI.get") as get:
+        get.return_value = json
+
+        data = api.query_table(
+            population_type, *dimensions, area_type=area_type
+        )
+
+    assert data == json
+
+    get.assert_called_once_with(url)
