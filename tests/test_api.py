@@ -8,6 +8,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from centhesus import CensusAPI
+from centhesus.api import _extract_records_from_observations
 from centhesus.constants import (
     API_ROOT,
     AREA_TYPES_BY_POPULATION_TYPE,
@@ -19,19 +20,60 @@ MOCK_URL = "mock://test.com/"
 
 
 @st.composite
-def table_queries(draw):
+def st_table_queries(draw):
     """Create a set of table query parameters for a test."""
 
     population_type = draw(st.sampled_from(POPULATION_TYPES))
+
+    area_types_available = AREA_TYPES_BY_POPULATION_TYPE[population_type]
+    area_type = draw(st.sampled_from(area_types_available))
 
     dimensions_available = DIMENSIONS_BY_POPULATION_TYPE[population_type]
     dimensions = draw(
         st.lists(st.sampled_from(dimensions_available), min_size=1, max_size=3)
     )
-    area_types_available = AREA_TYPES_BY_POPULATION_TYPE[population_type]
-    area_type = draw(st.sampled_from(area_types_available))
 
-    return population_type, dimensions, area_type
+    return population_type, area_type, dimensions
+
+
+@st.composite
+def st_observations(draw, max_nrows=10):
+    """Create a set of observations for a test."""
+
+    _, area_type, dimensions = draw(st_table_queries())
+
+    nrows = draw(st.integers(1, max_nrows))
+    observations = []
+    for _ in range(nrows):
+        observation = {}
+        observation["dimensions"] = [
+            {"option": draw(st.text()), "option_id": draw(st.text())}
+            for _ in dimensions
+        ]
+        observation["observation"] = draw(st.integers())
+
+        observations.append(observation)
+
+    return observations
+
+
+@st.composite
+def st_records_and_queries(draw, max_nrows=10):
+    """Create a set of records and query parameters to go with them."""
+
+    query = *_, dimensions = draw(st_table_queries())
+
+    nrows = draw(st.integers(1, max_nrows))
+    records = []
+    for _ in range(nrows):
+        record = (
+            draw(st.text()),
+            *(draw(st.text()) for _ in dimensions),
+            draw(st.integers()),
+        )
+        records.append(record)
+
+    return records, *query
 
 
 def test_init():
@@ -117,11 +159,11 @@ def test_get(json):
     process.assert_called_once_with(response)
 
 
-@given(table_queries(), st.dictionaries(st.text(), st.text()))
-def test_query_table(query, json):
+@given(st_table_queries(), st.dictionaries(st.text(), st.text()))
+def test_query_table_json(query, json):
     """Test that the table querist makes URLs and returns correctly."""
 
-    population_type, dimensions, area_type = query
+    population_type, area_type, dimensions = query
     url = (
         f"{API_ROOT}/{population_type}/census-observations"
         f"?area-type={area_type}&dimensions={','.join(dimensions)}"
@@ -132,10 +174,27 @@ def test_query_table(query, json):
     with mock.patch("centhesus.api.CensusAPI.get") as get:
         get.return_value = json
 
-        data = api.query_table(
-            population_type, *dimensions, area_type=area_type
-        )
+        data = api._query_table_json(population_type, area_type, dimensions)
 
     assert data == json
 
     get.assert_called_once_with(url)
+
+
+@given(st_observations(), st.booleans())
+def test_extract_records_from_observations(observations, use_id):
+    """Test the record extractor extracts correctly."""
+
+    records = _extract_records_from_observations(observations, use_id)
+
+    assert isinstance(records, list)
+
+    option = "option_id" if use_id else "option"
+    for record, observation in zip(records, observations):
+        assert isinstance(record, tuple)
+        assert len(record) == len(observation["dimensions"]) + 1
+
+        *dimensions, count = record
+        assert count == observation["observation"]
+        for i, dimension in enumerate(dimensions):
+            assert dimension == observation["dimensions"][i][option]
