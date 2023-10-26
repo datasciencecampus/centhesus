@@ -62,7 +62,7 @@ def st_observations(draw, max_nrows=10):
 def st_records_and_queries(draw, max_nrows=10):
     """Create a set of records and query parameters to go with them."""
 
-    query = *_, dimensions = draw(st_table_queries())
+    population_type, area_type, dimensions = draw(st_table_queries())
 
     nrows = draw(st.integers(1, max_nrows))
     records = []
@@ -74,7 +74,7 @@ def st_records_and_queries(draw, max_nrows=10):
         )
         records.append(record)
 
-    return records, *query
+    return records, population_type, area_type, dimensions
 
 
 def test_init():
