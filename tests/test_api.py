@@ -7,6 +7,8 @@ from hypothesis import strategies as st
 
 from centhesus import CensusAPI
 
+MOCK_URL = "mock://test.com/"
+
 
 @st.composite
 def st_jsons(draw):
@@ -46,13 +48,13 @@ def test_get(json, status):
         requests_get.return_value = response
         response.status_code = status
         response.json.return_value = json
- 
-        data = api.get(api._root)
+
+        data = api.get(MOCK_URL)
 
     if 200 <= status <= 299:
         assert data == json
     else:
         assert data is None
 
-    requests_get.assert_called_once_with(api._root, verify=True)
+    requests_get.assert_called_once_with(MOCK_URL, verify=True)
     response.json.assert_called_once()
