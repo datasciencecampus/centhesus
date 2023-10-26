@@ -5,6 +5,8 @@ import warnings
 
 import requests
 
+from centhesus.constants import API_ROOT
+
 
 class CensusAPI:
     """
@@ -12,8 +14,6 @@ class CensusAPI:
 
     Attributes
     ----------
-    _root : str
-        The URL to the 2021 Census API endpoint.
     _current_data : dict or None
         The data dictionary returned by the most recent API call. If no
         call has been made or the last call failed, this is `None`.
@@ -21,8 +21,6 @@ class CensusAPI:
         The URL of the most recent API call. If no call has been made,
         this is `None`.
     """
-
-    _root = "https://api.beta.ons.gov.uk/v1/population-types"
 
     def __init__(self):
 
@@ -96,3 +94,14 @@ class CensusAPI:
         self._current_data = data
 
         return self._current_data
+
+    def query_table(self, population_type, *dimensions, area_type="nat"):
+        """Retrieve the JSON for a table from the API."""
+
+        base = "/".join((API_ROOT, population_type, "census-observations"))
+        parameters = f"area-type={area_type}&dimensions={','.join(dimensions)}"
+        url = "?".join((base, parameters))
+
+        data = self.get(url)
+
+        return data
