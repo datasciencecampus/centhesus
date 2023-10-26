@@ -1,16 +1,21 @@
 """Unit tests for the `centhesus.api` module."""
 
+from unittest import mock
+
+from hypothesis import given
+from hypothesis import strategies as st
+
 from centhesus import CensusAPI
 
 
-def _test_params_by_pop(params_by_pop, populations):
-    """Check a parameter dictionary. Helper function."""
+@st.composite
+def st_jsons(draw):
+    """Create a JSON response for property-based testing."""
 
-    assert isinstance(params_by_pop, dict)
-    assert set(populations) == set(params_by_pop.keys())
-    for params in params_by_pop.values():
-        assert isinstance(params, list)
-        assert all(isinstance(param, str) for param in params)
+    num_items = draw(st.integers(1, 30))
+    json = {"items": [{"name": draw(st.text())} for _ in range(num_items)]}
+
+    return json
 
 
 def test_init():
@@ -18,13 +23,36 @@ def test_init():
 
     api = CensusAPI()
 
-    assert api._root == "https://api.beta.ons.gov.uk/v1/population-types"
+    assert (
+        api._root
+        == CensusAPI._root
+        == "https://api.beta.ons.gov.uk/v1/population-types"
+    )
 
-    populations = api.populations
-    assert isinstance(populations, list)
-    assert all(isinstance(pop, str) for pop in populations)
-
-    for params in (api.areas_by_population, api.dimensions_by_population):
-        _test_params_by_pop(params, populations)
-
+    assert api.populations is None
+    assert api.areas_by_population is None
+    assert api.dimensions_by_population is None
     assert api._current_data is None
+
+
+@given(st_jsons(), st.integers(100, 1000))
+def test_get(json, status):
+    """Test that the API only gives data from successful responses."""
+
+    api = CensusAPI()
+
+    with mock.patch("centhesus.api.requests.get") as requests_get:
+        response = mock.MagicMock()
+        requests_get.return_value = response
+        response.status_code = status
+        response.json.return_value = json
+ 
+        data = api.get(api._root)
+
+    if 200 <= status <= 299:
+        assert data == json
+    else:
+        assert data is None
+
+    requests_get.assert_called_once_with(api._root, verify=True)
+    response.json.assert_called_once()
