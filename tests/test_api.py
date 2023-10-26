@@ -10,7 +10,6 @@ from hypothesis import strategies as st
 from centhesus import CensusAPI
 
 MOCK_URL = "mock://test.com/"
-CensusAPI._root = MOCK_URL
 
 
 def test_init():
@@ -18,7 +17,6 @@ def test_init():
 
     api = CensusAPI()
 
-    assert api._root == MOCK_URL
     assert api._current_data is None
     assert api._current_url is None
 
@@ -57,7 +55,10 @@ def test_process_response_invalid_status_code(status):
 
 
 def test_process_response_invalid_json():
-    """Test that invalid JSON would return no data and a warning."""
+    """Test for valid coded, invalid JSON responses.
+
+    We expect the processor to return no data and a warning.
+    """
 
     api = CensusAPI()
 
