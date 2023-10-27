@@ -77,6 +77,29 @@ def st_records_and_queries(draw, max_nrows=10):
     return records, population_type, area_type, dimensions
 
 
+@st.composite
+def st_area_types_info_and_queries(draw):
+    """Create the parameters and response for an area type query."""
+
+    population_type = draw(st.sampled_from(POPULATION_TYPES))
+
+    area_types_available = AREA_TYPES_BY_POPULATION_TYPE[population_type]
+    area_types = draw(
+        st.lists(
+            st.sampled_from(area_types_available),
+            min_size=0,
+            max_size=5,
+            unique=True,
+        )
+    )
+
+    area_types_info = {
+        "items": [{"id": area_type} for area_type in area_types_available]
+    }
+
+    return area_types_info, population_type, area_types
+
+
 def test_init():
     """Test that the `CensusAPI` class can be instantiated correctly."""
 
@@ -250,3 +273,52 @@ def test_query_table_invalid(query, result):
     assert data is None
 
     querist.assert_called_once_with(*query)
+
+
+@given(st_area_types_info_and_queries())
+def test_query_area_types_valid(info_and_query):
+    """Test the area type querist returns a valid list."""
+
+    area_types_info, population_type, area_types = info_and_query
+
+    api = CensusAPI()
+
+    with mock.patch("centhesus.api.CensusAPI.get") as get:
+        get.return_value = area_types_info
+
+        area_types_info = api.query_area_types(population_type, *area_types)
+
+    area_types = area_types or AREA_TYPES_BY_POPULATION_TYPE[population_type]
+    assert isinstance(area_types_info, list)
+    assert len(area_types_info) == len(area_types)
+
+    for info in area_types_info:
+        assert isinstance(info, dict)
+        assert info["id"] in area_types
+
+    get.assert_called_once_with(
+        "/".join((API_ROOT, population_type, "area-types?limit=100"))
+    )
+
+
+@given(
+    st_area_types_info_and_queries(),
+    st.one_of((st.just(None), st.dictionaries(st.integers(), st.text()))),
+)
+def test_query_area_types_invalid(info_and_query, result):
+    """Test the area type querist returns nothing if the call fails."""
+
+    _, population_type, area_types = info_and_query
+
+    api = CensusAPI()
+
+    with mock.patch("centhesus.api.CensusAPI.get") as get:
+        get.return_value = result
+
+        area_types_info = api.query_area_types(population_type, *area_types)
+
+    assert area_types_info is None
+
+    get.assert_called_once_with(
+        "/".join((API_ROOT, population_type, "area-types?limit=100"))
+    )
