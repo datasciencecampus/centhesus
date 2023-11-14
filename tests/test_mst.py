@@ -15,15 +15,25 @@ from centhesus import MST
 from .strategies import st_api_parameters, st_feature_metadata_parameters
 
 
+def mocked_mst(population_type, area_type, dimensions, return_value=None):
+    """Create an instance of MST with mocked `get_domain`."""
+
+    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
+        get_domain.return_value = return_value
+        mst = MST(population_type, area_type, dimensions)
+
+    get_domain.assert_called_once_with()
+
+    return mst
+
+
 @given(st_api_parameters())
 def test_init(params):
     """Test instantiation of the MST class."""
 
     population_type, area_type, dimensions = params
 
-    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
-        get_domain.return_value = "domain"
-        mst = MST(population_type, area_type, dimensions)
+    mst = mocked_mst(population_type, area_type, dimensions)
 
     assert isinstance(mst, MST)
     assert mst.population_type == population_type
@@ -31,9 +41,7 @@ def test_init(params):
     assert mst.dimensions == dimensions
 
     assert isinstance(mst.api, CensusAPI)
-    assert mst.domain == "domain"
-
-    get_domain.assert_called_once_with()
+    assert mst.domain is None
 
 
 @given(st_api_parameters())
@@ -42,9 +50,7 @@ def test_init_none_area_type(params):
 
     population_type, _, dimensions = params
 
-    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
-        get_domain.return_value = "domain"
-        mst = MST(population_type, None, dimensions)
+    mst = mocked_mst(population_type, None, dimensions)
 
     assert isinstance(mst, MST)
     assert mst.population_type == population_type
@@ -52,9 +58,7 @@ def test_init_none_area_type(params):
     assert mst.dimensions == dimensions
 
     assert isinstance(mst.api, CensusAPI)
-    assert mst.domain == "domain"
-
-    get_domain.assert_called_once_with()
+    assert mst.domain is None
 
 
 @given(st_api_parameters())
@@ -63,9 +67,7 @@ def test_init_none_dimensions(params):
 
     population_type, area_type, _ = params
 
-    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
-        get_domain.return_value = "domain"
-        mst = MST(population_type, area_type, None)
+    mst = mocked_mst(population_type, area_type, None)
 
     assert isinstance(mst, MST)
     assert mst.population_type == population_type
@@ -73,9 +75,7 @@ def test_init_none_dimensions(params):
     assert mst.dimensions == DIMENSIONS_BY_POPULATION_TYPE[population_type]
 
     assert isinstance(mst.api, CensusAPI)
-    assert mst.domain == "domain"
-
-    get_domain.assert_called_once_with()
+    assert mst.domain is None
 
 
 @given(st_feature_metadata_parameters())
@@ -84,8 +84,7 @@ def test_get_domain_of_feature(params):
 
     population_type, area_type, dimensions, feature, metadata = params
 
-    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
-        mst = MST(population_type, area_type, dimensions)
+    mst = mocked_mst(population_type, area_type, dimensions)
 
     with mock.patch("centhesus.mst.CensusAPI.query_feature") as query:
         query.return_value = metadata
@@ -98,7 +97,6 @@ def test_get_domain_of_feature(params):
     assert list(domain.values()) == metadata["total_count"].to_list()
 
     query.assert_called_once_with(population_type, feature, *items)
-    get_domain.assert_called_once_with()
 
 
 @given(st_feature_metadata_parameters())
@@ -107,8 +105,7 @@ def test_get_domain_of_feature_none_area_type(params):
 
     population_type, _, dimensions, _, metadata = params
 
-    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
-        mst = MST(population_type, None, dimensions)
+    mst = mocked_mst(population_type, None, dimensions)
 
     with mock.patch("centhesus.mst.CensusAPI.query_feature") as query:
         domain = mst._get_domain_of_feature("area-types")
@@ -116,7 +113,6 @@ def test_get_domain_of_feature_none_area_type(params):
     assert isinstance(domain, dict)
     assert domain == {}
 
-    get_domain.assert_called_once_with()
     query.assert_not_called()
 
 
@@ -124,10 +120,7 @@ def test_get_domain_of_feature_none_area_type(params):
 def test_get_domain_of_feature_raises_error(params, feature):
     """Test the domain getter raises an error for invalid features."""
 
-    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
-        mst = MST(*params)
+    mst = mocked_mst(*params)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^Feature"):
         mst._get_domain_of_feature(feature)
-
-    get_domain.assert_called_once_with()
