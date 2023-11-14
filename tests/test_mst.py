@@ -93,7 +93,7 @@ def test_get_domain_of_feature(params):
     assert isinstance(domain, dict)
 
     items = [area_type] if feature == "area-types" else dimensions
-    assert list(domain.keys()) == items
+    assert list(domain.keys()) == metadata["id"].to_list() == items
     assert list(domain.values()) == metadata["total_count"].to_list()
 
     query.assert_called_once_with(population_type, feature, *items)
