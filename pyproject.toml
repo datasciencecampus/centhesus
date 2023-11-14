@@ -9,6 +9,8 @@ readme = "README.md"
 requires-python = ">=3.7"
 license = {text = "MIT License"}
 dependencies = [
+    "census21api@git+https://github.com/MichaelaLawrenceONS/Census21_CACD_Wrapper@dev-0.0.1",
+    "dask[complete]",
     "numpy",
     "pandas",
     "private-pgm@git+https://github.com/ryan112358/private-pgm",
@@ -30,7 +32,7 @@ test = [
     "pytest-randomly",
 ]
 lint = [
-    "black>=22.6.0,<23",
+    "black<24",
     "ruff>=0.1.1",
 ]
 dev = [
