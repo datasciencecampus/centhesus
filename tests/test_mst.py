@@ -2,51 +2,17 @@
 
 from unittest import mock
 
-import pandas as pd
+import pytest
 from census21api import CensusAPI
 from census21api.constants import (
-    AREA_TYPES_BY_POPULATION_TYPE,
     DIMENSIONS_BY_POPULATION_TYPE,
-    POPULATION_TYPES,
 )
 from hypothesis import given
 from hypothesis import strategies as st
 
 from centhesus import MST
 
-
-@st.composite
-def st_api_parameters(draw):
-    """Create a valid set of Census API parameters."""
-
-    population_type = draw(st.sampled_from(POPULATION_TYPES))
-    area_type = draw(
-        st.sampled_from(AREA_TYPES_BY_POPULATION_TYPE[population_type]),
-    )
-    dimensions = draw(
-        st.sets(
-            st.sampled_from(DIMENSIONS_BY_POPULATION_TYPE[population_type]),
-            min_size=1,
-        ).map(sorted),
-    )
-
-    return population_type, area_type, dimensions
-
-
-@st.composite
-def st_feature_metadata_parameters(draw):
-    """Create a parameter set and feature metadata for a test."""
-
-    population_type, area_type, dimensions = draw(st_api_parameters())
-
-    feature = draw(st.sampled_from(("area-types", "dimensions")))
-    items = [area_type] if feature == "area-types" else dimensions
-    metadata = pd.DataFrame(
-        ((item, draw(st.integers())) for item in items),
-        columns=("id", "total_count"),
-    )
-
-    return population_type, area_type, dimensions, feature, metadata
+from .strategies import st_api_parameters, st_feature_metadata_parameters
 
 
 @given(st_api_parameters())
@@ -119,7 +85,6 @@ def test_get_domain_of_feature(params):
     population_type, area_type, dimensions, feature, metadata = params
 
     with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
-        get_domain.return_value = "domain"
         mst = MST(population_type, area_type, dimensions)
 
     with mock.patch("centhesus.mst.CensusAPI.query_feature") as query:
@@ -133,4 +98,36 @@ def test_get_domain_of_feature(params):
     assert list(domain.values()) == metadata["total_count"].to_list()
 
     query.assert_called_once_with(population_type, feature, *items)
+    get_domain.assert_called_once_with()
+
+
+@given(st_feature_metadata_parameters())
+def test_get_domain_of_feature_none_area_type(params):
+    """Test the feature domain getter when area type is None."""
+
+    population_type, _, dimensions, _, metadata = params
+
+    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
+        mst = MST(population_type, None, dimensions)
+
+    with mock.patch("centhesus.mst.CensusAPI.query_feature") as query:
+        domain = mst._get_domain_of_feature("area-types")
+
+    assert isinstance(domain, dict)
+    assert domain == {}
+
+    get_domain.assert_called_once_with()
+    query.assert_not_called()
+
+
+@given(st_api_parameters(), st.text())
+def test_get_domain_of_feature_raises_error(params, feature):
+    """Test the domain getter raises an error for invalid features."""
+
+    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
+        mst = MST(*params)
+
+    with pytest.raises(ValueError):
+        mst._get_domain_of_feature(feature)
+
     get_domain.assert_called_once_with()
