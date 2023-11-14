@@ -56,7 +56,6 @@ class MST:
     def __init__(
         self, population_type="UR_HH", area_type=None, dimensions=None
     ):
-
         self.population_type = population_type
         self.area_type = area_type
         self.dimensions = dimensions or DIMENSIONS[self.population_type]
