@@ -64,5 +64,27 @@ class MST:
         self.api = CensusAPI()
         self.domain = self.get_domain()
 
+    def _get_domain_of_feature(self, feature):
+        """Retrieve the domain for items in a feature of the API."""
+
+        if feature == "area-types" and self.area_type is None:
+            return {}
+        elif feature == "area-types":
+            items = [self.area_type]
+        elif feature == "dimensions":
+            items = self.dimensions
+        else:
+            raise ValueError(
+                "Feature must be one of 'area-types' or 'dimensions', "
+                f"not '{feature}'"
+            )
+
+        metadata = self.api.query_feature(
+            self.population_type, feature, *items
+        )
+        domain = dict(metadata[["id", "total_count"]].to_dict("split")["data"])
+
+        return domain
+
     def get_domain(self):
         """Retrieve domain metadata from the API."""
