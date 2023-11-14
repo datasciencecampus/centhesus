@@ -3,6 +3,8 @@
 import string
 from unittest import mock
 
+import numpy as np
+import pandas as pd
 import pytest
 from census21api import CensusAPI
 from census21api.constants import (
@@ -14,7 +16,11 @@ from mbi import Domain
 
 from centhesus import MST
 
-from .strategies import st_api_parameters, st_feature_metadata_parameters
+from .strategies import (
+    st_api_parameters,
+    st_feature_metadata_parameters,
+    st_marginals,
+)
 
 
 def mocked_mst(population_type, area_type, dimensions, return_value=None):
@@ -157,3 +163,23 @@ def test_get_domain(params, area_type_domain, dimensions_domain):
         ("area-types",),
         ("dimensions",),
     ]
+
+
+@given(st_marginals(), st.booleans())
+def test_get_marginal(params, flatten):
+    """Test that a marginal table can be processed correctly."""
+
+    population_type, area_type, dimensions, clique, table = params
+    mst = mocked_mst(population_type, area_type, dimensions)
+
+    with mock.patch("centhesus.mst.CensusAPI.query_table") as query:
+        query.return_value = table
+        marginal = mst.get_marginal(clique, flatten)
+
+    if flatten:
+        assert isinstance(marginal, np.ndarray)
+        assert (marginal == table["count"]).all()
+    else:
+        assert isinstance(marginal, pd.Series)
+        assert marginal.name == "count"
+        assert (marginal.reset_index() == table).all().all()

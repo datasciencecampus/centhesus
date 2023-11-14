@@ -6,7 +6,9 @@ from census21api.constants import (
     DIMENSIONS_BY_POPULATION_TYPE,
     POPULATION_TYPES,
 )
+from hypothesis import assume
 from hypothesis import strategies as st
+from hypothesis.extra.pandas import column, data_frames
 
 
 @st.composite
@@ -41,3 +43,41 @@ def st_feature_metadata_parameters(draw):
     )
 
     return population_type, area_type, dimensions, feature, metadata
+
+
+@st.composite
+def st_marginals(draw):
+    """Create a marginal table and its parameters for a test."""
+
+    population_type, area_type, dimensions = draw(st_api_parameters())
+
+    clique = draw(
+        st.sets(
+            st.sampled_from((area_type, *dimensions)), min_size=1, max_size=2
+        ).map(tuple)
+    )
+
+    columns = [
+        *(
+            column(
+                col,
+                elements=st.integers(min_value=-1, max_value=5),
+                unique=True,
+            )
+            for col in clique
+        ),
+        column(
+            "count",
+            elements=st.integers(min_value=0, max_value=10),
+        ),
+    ]
+
+    marginal = (
+        draw(data_frames(columns))
+        .sort_values(list(clique))
+        .reset_index(drop=True)
+    )
+
+    assume(len(marginal))
+
+    return population_type, area_type, dimensions, clique, marginal
