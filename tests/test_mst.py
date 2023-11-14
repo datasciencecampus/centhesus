@@ -1,5 +1,6 @@
 """Tests for the `centhesus.mst` module."""
 
+import string
 from unittest import mock
 
 import pytest
@@ -9,6 +10,7 @@ from census21api.constants import (
 )
 from hypothesis import given
 from hypothesis import strategies as st
+from mbi import Domain
 
 from centhesus import MST
 
@@ -124,3 +126,34 @@ def test_get_domain_of_feature_raises_error(params, feature):
 
     with pytest.raises(ValueError, match="^Feature"):
         mst._get_domain_of_feature(feature)
+
+
+@given(
+    st_api_parameters(),
+    st.dictionaries(
+        st.text(string.ascii_uppercase, min_size=1), st.integers()
+    ),
+    st.dictionaries(
+        st.text(string.ascii_lowercase, min_size=1), st.integers()
+    ),
+)
+def test_get_domain(params, area_type_domain, dimensions_domain):
+    """Test the domain getter can process metadata correctly."""
+
+    mst = mocked_mst(*params)
+
+    with mock.patch("centhesus.mst.MST._get_domain_of_feature") as feature:
+        feature.side_effect = [area_type_domain, dimensions_domain]
+        domain = mst.get_domain()
+
+    assert isinstance(domain, Domain)
+    assert domain.attrs == (
+        *area_type_domain.keys(),
+        *dimensions_domain.keys(),
+    )
+
+    assert feature.call_count == 2
+    assert [call.args for call in feature.call_args_list] == [
+        ("area-types",),
+        ("dimensions",),
+    ]
