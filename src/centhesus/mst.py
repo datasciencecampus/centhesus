@@ -2,6 +2,7 @@
 
 from census21api import CensusAPI
 from census21api.constants import DIMENSIONS_BY_POPULATION_TYPE as DIMENSIONS
+from mbi import Domain
 
 
 class MST:
@@ -64,7 +65,25 @@ class MST:
         self.domain = self.get_domain()
 
     def _get_domain_of_feature(self, feature):
-        """Retrieve the domain for items in a feature of the API."""
+        """
+        Retrieve the domain for items in a feature of the API.
+
+        Parameters
+        ----------
+        feature : {"area-types", "dimensions"}
+            Feature of the API from which to call.
+
+        Raises
+        ------
+        ValueError
+            If `feature` is invalid.
+
+        Returns
+        -------
+        domain : dict
+            Dictionary containing the domain metadata. Empty if
+            `feature` is `"area-types"` and `self.area_type` is `None`.
+        """
 
         if feature == "area-types" and self.area_type is None:
             return {}
@@ -86,4 +105,19 @@ class MST:
         return domain
 
     def get_domain(self):
-        """Retrieve domain metadata from the API."""
+        """
+        Retrieve domain metadata from the API.
+
+        Returns
+        -------
+        domain : mbi.Domain
+            Dictionary-like object defining the domain size of every column
+            in the synthetic dataset (area type and dimensions).
+        """
+
+        area_type_domain = self._get_domain_of_feature("area-types")
+        dimension_domain = self._get_domain_of_feature("dimensions")
+
+        domain = Domain.fromdict({**area_type_domain, **dimension_domain})
+
+        return domain
