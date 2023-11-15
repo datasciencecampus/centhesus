@@ -3,7 +3,7 @@
 import dask
 from census21api import CensusAPI
 from census21api.constants import DIMENSIONS_BY_POPULATION_TYPE as DIMENSIONS
-from mbi import Domain
+from mbi import Domain, FactoredInference
 from scipy import sparse
 
 
@@ -208,3 +208,26 @@ class MST:
         ]
 
         return measurements
+
+    def fit_model(self, measurements, iters=5000):
+        """
+        Fit a graphical model to some measurements.
+
+        Parameters
+        ----------
+        measurements : list of tuple
+            Measurement tuples associated with some cliques to fit.
+        iters : int
+            Number of iterations to use when fitting the model. Default
+            is 5000.
+
+        Returns
+        -------
+        model : mbi.GraphicalModel
+            Fitted graphical model.
+        """
+
+        engine = FactoredInference(self.domain, iters=iters)
+        model = engine.estimate(measurements)
+
+        return model
