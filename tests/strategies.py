@@ -2,6 +2,7 @@
 
 import itertools
 import math
+from unittest import mock
 
 import networkx as nx
 import numpy as np
@@ -13,6 +14,20 @@ from census21api.constants import (
 )
 from hypothesis import strategies as st
 from mbi import Domain
+
+from centhesus import MST
+
+
+def mocked_mst(population_type, area_type, dimensions, domain=None):
+    """Create an instance of MST with mocked `get_domain`."""
+
+    with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
+        get_domain.return_value = domain
+        mst = MST(population_type, area_type, dimensions)
+
+    get_domain.assert_called_once_with()
+
+    return mst
 
 
 @st.composite
@@ -89,7 +104,7 @@ def st_domains(draw):
     """Create a domain and its parameters for a test."""
 
     population_type, area_type, dimensions = draw(st_api_parameters())
-    
+
     num = len(dimensions) + 1
     sizes = draw(st.lists(st.integers(2, 10), min_size=num, max_size=num))
     domain = Domain.fromdict(dict(zip((area_type, *dimensions), sizes)))
