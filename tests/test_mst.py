@@ -273,3 +273,22 @@ def test_calculate_importance_of_pair(params):
     interim.project.assert_called_once_with(clique)
     interim.project.return_value.datavector.assert_called_once_with()
     get_marginal.assert_called_once_with(clique)
+
+
+@given(st_single_marginals(kind="pair"))
+def test_calculate_importance_of_pair_failed_call(params):
+    """Test that a failed call doesn't stop importance processing."""
+
+    population_type, area_type, dimensions, clique, _ = params
+    mst = mocked_mst(population_type, area_type, dimensions)
+
+    interim = mock.MagicMock()
+    with mock.patch("centhesus.mst.MST.get_marginal") as get_marginal:
+        get_marginal.return_value = None
+        weight = mst._calculate_importance_of_pair(interim, clique)
+
+    assert weight is None
+
+    interim.project.assert_not_called()
+    interim.project.return_value.datavector.assert_not_called()
+    get_marginal.assert_called_once_with(clique)
