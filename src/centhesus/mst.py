@@ -333,3 +333,40 @@ class MST:
         tree = nx.minimum_spanning_tree(graph)
 
         return tree
+
+    def select(self, measurements):
+        """
+        Select the most informative two-way cliques.
+
+        To determine how informative a column pair is, we first create
+        an interim graphical model from all observed one-way marginals.
+        Then, each column pair's importance is defined as the L1
+        difference between its observed two-way marginal and the
+        estimated marginal from the interim model.
+
+        With all the importances calculated, we model the column pairs
+        as a weighted graph where columns are nodes and an edge
+        represents the importance of the column pair at its endpoints.
+        In this way, the smallest set of the most informative column
+        pairs is given as the maximum spanning tree of this graph.
+
+        The selected two-way cliques are the edges of this tree.
+
+        Parameters
+        ----------
+        measurements : list of tuple
+            One-way marginal measurements with which to fit an interim
+            graphical model.
+
+        Returns
+        -------
+        cliques : list of tuple
+            Edges of the maximum spanning tree of our weighted graph.
+        """
+
+        interim = self.fit_model(measurements, iters=1000)
+        weights = self._calculate_importances(interim)
+        tree = self._find_maximum_spanning_tree(weights)
+
+        return list(tree.edges)
+    
