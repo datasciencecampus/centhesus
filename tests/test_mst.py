@@ -24,6 +24,7 @@ from .strategies import (
     st_feature_metadata_parameters,
     st_importances,
     st_single_marginals,
+    st_subgraphs,
 )
 
 
@@ -333,6 +334,29 @@ def test_find_maximum_spanning_tree(params):
     tree = mst._find_maximum_spanning_tree(weights)
 
     assert isinstance(tree, nx.Graph)
+    assert set(tree.nodes) == set(domain)
     assert set(tree.edges).issubset(weights.keys())
     for edge in tree.edges:
         assert tree.edges[edge]["weight"] == -weights[edge]
+
+@given(st_subgraphs())
+def test_select(params):
+    """Test that a set of two-way cliques can be found correctly."""
+
+    *api_params, domain, tree = params
+    mst = mocked_mst(*api_params, domain=domain)
+
+    with mock.patch("centhesus.mst.MST.fit_model") as fit, mock.patch("centhesus.mst.MST._calculate_importances") as calc, mock.patch("centhesus.mst.MST._find_maximum_spanning_tree") as find:
+        fit.return_value = "interim"
+        calc.return_value = "weights"
+        find.return_value = tree
+        cliques = mst.select("measurements")
+
+    possible_edges = [set(pair) for pair in itertools.combinations(domain, 2)]
+    assert isinstance(cliques, list)
+    for clique in cliques:
+        assert set(clique) in possible_edges
+
+    fit.assert_called_once_with("measurements", iters=1000)
+    calc.assert_called_once_with("interim")
+    find.assert_called_once_with("weights")

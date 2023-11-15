@@ -3,6 +3,7 @@
 import itertools
 import math
 
+import networkx as nx
 import numpy as np
 import pandas as pd
 from census21api.constants import (
@@ -84,15 +85,25 @@ def st_single_marginals(draw, kind=None):
 
 
 @st.composite
-def st_importances(draw):
-    """Create a domain and set of importances for a test."""
+def st_domains(draw):
+    """Create a domain and its parameters for a test."""
 
     population_type, area_type, dimensions = draw(st_api_parameters())
+    
     num = len(dimensions) + 1
-
     sizes = draw(st.lists(st.integers(2, 10), min_size=num, max_size=num))
     domain = Domain.fromdict(dict(zip((area_type, *dimensions), sizes)))
 
+    return population_type, area_type, dimensions, domain
+
+
+@st.composite
+def st_importances(draw):
+    """Create a domain and set of importances for a test."""
+
+    population_type, area_type, dimensions, domain = draw(st_domains())
+
+    num = len(domain)
     importances = draw(
         st.lists(
             st.floats(max_value=0, allow_infinity=False, allow_nan=False),
@@ -102,3 +113,18 @@ def st_importances(draw):
     )
 
     return population_type, area_type, dimensions, domain, importances
+
+
+@st.composite
+def st_subgraphs(draw):
+    """Create a subgraph and its parameters for a test."""
+
+    population_type, area_type, dimensions, domain = draw(st_domains())
+
+    edges = draw(
+        st.sets(st.sampled_from(list(itertools.combinations(domain, 2))))
+    )
+    graph = nx.Graph()
+    graph.add_edges_from(edges)
+
+    return population_type, area_type, dimensions, domain, graph
