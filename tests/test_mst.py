@@ -4,6 +4,7 @@ import itertools
 import string
 from unittest import mock
 
+import networkx as nx
 import numpy as np
 import pandas as pd
 import pytest
@@ -270,7 +271,7 @@ def test_calculate_importance_of_pair(params):
         weight = mst._calculate_importance_of_pair(interim, clique)
 
     assert isinstance(weight, float)
-    assert weight <= 0
+    assert weight >= 0
 
     interim.project.assert_called_once_with(clique)
     interim.project.return_value.datavector.assert_called_once_with()
@@ -319,3 +320,19 @@ def test_calculate_importances(params):
     pairs_execution_order = [pair for _, pair in call_args]
     for pair, importance in zip(pairs_execution_order, importances):
         assert weights[pair] == importance
+
+
+@given(st_importances())
+def test_find_maximum_spanning_tree(params):
+    """Test an MST can be found from a set of importances."""
+
+    *api_params, domain, importances = params
+    mst = mocked_mst(*api_params, domain=domain)
+    weights = dict(zip(itertools.combinations(domain, 2), importances))
+
+    tree = mst._find_maximum_spanning_tree(weights)
+
+    assert isinstance(tree, nx.Graph)
+    assert set(tree.edges).issubset(weights.keys())
+    for edge in tree.edges:
+        assert tree.edges[edge]["weight"] == -weights[edge]
