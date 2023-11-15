@@ -3,6 +3,7 @@
 import itertools
 
 import dask
+import networkx as nx
 import numpy as np
 from census21api import CensusAPI
 from census21api.constants import DIMENSIONS_BY_POPULATION_TYPE as DIMENSIONS
@@ -241,9 +242,9 @@ class MST:
         """
         Determine the importance of a column pair with an interim model.
 
-        Importance is defined as the negative L1 norm between the
-        observed marginal table for the column pair and that estimated
-        by our interim model.
+        Importance is defined as the L1 norm between the observed
+        marginal table for the column pair and that estimated by our
+        interim model.
 
         Parameters
         ----------
@@ -257,16 +258,16 @@ class MST:
         pair : tuple of str
             Assessed column pair.
         weight : float or None
-            Importance of the pair given as the negative of the L1 norm
-            between the observed and estimated marginals for the pair.
-            If the API call fails, this is `None`.
+            Importance of the pair given as the L1 norm between the
+            observed and estimated marginals for the pair. If the API
+            call fails, this is `None`.
         """
 
         weight = None
         marginal = self.get_marginal(pair)
         if marginal is not None:
             estimate = interim.project(pair).datavector()
-            weight = -np.linalg.norm(marginal - estimate, 1)
+            weight = np.linalg.norm(marginal - estimate, 1)
 
         return weight
 
@@ -305,3 +306,30 @@ class MST:
         }
 
         return weights
+
+    def _find_maximum_spanning_tree(self, weights):
+        """
+        Find the maximum spanning tree given a set of edge importances.
+
+        To find the tree, we use Kruskal's algorithm to find the minimum
+        spanning tree with negative weights.
+
+        Parameters
+        ----------
+        weights : dict
+            Dictionary mapping edges (column pairs) to their importance.
+
+        Returns
+        -------
+        tree : nx.Graph
+            Maximum spanning tree of all column pairs.
+        """
+
+        graph = nx.Graph()
+        graph.add_nodes_from(self.domain)
+        for edge, weight in weights.items():
+            graph.add_edge(*edge, weight=-weight)
+
+        tree = nx.minimum_spanning_tree(graph)
+
+        return tree
