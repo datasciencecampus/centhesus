@@ -47,14 +47,22 @@ def st_feature_metadata_parameters(draw):
 
 
 @st.composite
-def st_single_marginals(draw):
+def st_single_marginals(draw, kind=None):
     """Create a marginal table and its parameters for a test."""
 
     population_type, area_type, dimensions = draw(st_api_parameters())
 
+    min_size, max_size = 1, 2
+    if kind == "single":
+        max_size = 1
+    if kind == "pair":
+        min_size = 2
+
     clique = draw(
         st.sets(
-            st.sampled_from((area_type, *dimensions)), min_size=1, max_size=2
+            st.sampled_from((area_type, *dimensions)),
+            min_size=min_size,
+            max_size=max_size,
         ).map(tuple)
     )
 

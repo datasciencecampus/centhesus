@@ -249,3 +249,27 @@ def test_fit_model(params, iters):
     assert model.cliques == [clique]
     assert model.elimination_order == list(clique)
     assert model.total == table.sum() or 1
+
+
+@given(st_single_marginals(kind="pair"))
+def test_calculate_importance_of_pair(params):
+    """Test the importance of a column pair can be calculated."""
+
+    population_type, area_type, dimensions, clique, table = params
+    table = table["count"]
+    mst = mocked_mst(population_type, area_type, dimensions)
+
+    interim = mock.MagicMock()
+    interim.project.return_value.datavector.return_value = table.sample(
+        frac=1.0
+    ).reset_index(drop=True)
+    with mock.patch("centhesus.mst.MST.get_marginal") as get_marginal:
+        get_marginal.return_value = table
+        weight = mst._calculate_importance_of_pair(interim, clique)
+
+    assert isinstance(weight, float)
+    assert weight <= 0
+
+    interim.project.assert_called_once_with(clique)
+    interim.project.return_value.datavector.assert_called_once_with()
+    get_marginal.assert_called_once_with(clique)
