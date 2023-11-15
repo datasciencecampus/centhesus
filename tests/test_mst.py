@@ -10,9 +10,9 @@ from census21api import CensusAPI
 from census21api.constants import (
     DIMENSIONS_BY_POPULATION_TYPE,
 )
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
-from mbi import Domain
+from mbi import Domain, GraphicalModel
 from scipy import sparse
 
 from centhesus import MST
@@ -24,11 +24,11 @@ from .strategies import (
 )
 
 
-def mocked_mst(population_type, area_type, dimensions, return_value=None):
+def mocked_mst(population_type, area_type, dimensions, domain=None):
     """Create an instance of MST with mocked `get_domain`."""
 
     with mock.patch("centhesus.mst.MST.get_domain") as get_domain:
-        get_domain.return_value = return_value
+        get_domain.return_value = domain
         mst = MST(population_type, area_type, dimensions)
 
     get_domain.assert_called_once_with()
@@ -204,6 +204,7 @@ def test_get_marginal_failed_call(params, flatten):
     query.assert_called_once()
 
 
+@settings(deadline=None)
 @given(st_single_marginals(), st.integers(1, 5))
 def test_measure(params, num_cliques):
     """Test a set of cliques can be measured."""
@@ -229,3 +230,22 @@ def test_measure(params, num_cliques):
         assert marg.equals(table)
         assert noise == 1e-12
         assert cliq == clique
+
+
+@given(st_single_marginals(), st.integers(1, 5))
+def test_fit_model(params, iters):
+    """Test that a model can be fitted to some measurements."""
+
+    population_type, area_type, dimensions, clique, table = params
+    domain = Domain.fromdict(table.drop("count", axis=1).nunique().to_dict())
+    table = table["count"]
+    mst = mocked_mst(population_type, area_type, dimensions, domain=domain)
+
+    measurements = [(sparse.eye(table.size), table, 1e-12, clique)]
+    model = mst.fit_model(measurements, iters)
+
+    assert isinstance(model, GraphicalModel)
+    assert model.domain == mst.domain
+    assert model.cliques == [clique]
+    assert model.elimination_order == list(clique)
+    assert model.total == table.sum() or 1

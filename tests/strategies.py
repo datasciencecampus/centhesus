@@ -1,5 +1,8 @@
 """Custom strategies for testing the package."""
 
+import itertools
+
+import numpy as np
 import pandas as pd
 from census21api.constants import (
     AREA_TYPES_BY_POPULATION_TYPE,
@@ -55,10 +58,16 @@ def st_single_marginals(draw):
         ).map(tuple)
     )
 
-    counts = draw(st.lists(st.integers(0), min_size=1, max_size=10))
-    marginal = pd.DataFrame(
-        ((*([i] * len(clique)), count) for i, count in enumerate(counts)),
-        columns=(*clique, "count"),
+    num_uniques = [draw(st.integers(2, 5)) for _ in clique]
+    num_rows = int(np.prod(num_uniques))
+    counts = draw(
+        st.lists(st.integers(0, 100), min_size=num_rows, max_size=num_rows)
     )
+
+    marginal = pd.DataFrame(
+        itertools.product(*(range(num_unique) for num_unique in num_uniques)),
+        columns=clique,
+    )
+    marginal["count"] = counts
 
     return population_type, area_type, dimensions, clique, marginal
