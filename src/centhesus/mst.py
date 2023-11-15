@@ -1,6 +1,7 @@
 """Module for the Maximum Spanning Tree generator."""
 
 import dask
+import numpy as np
 from census21api import CensusAPI
 from census21api.constants import DIMENSIONS_BY_POPULATION_TYPE as DIMENSIONS
 from mbi import Domain, FactoredInference
@@ -231,3 +232,31 @@ class MST:
         model = engine.estimate(measurements)
 
         return model
+
+    def _calculate_importance_of_pair(self, interim, pair):
+        """
+        Determine the importance of a column pair with an interim model.
+
+        Importance is defined as the negative L1 norm between the
+        observed marginal table for the column pair and that estimated
+        by our interim model.
+
+        Parameters
+        ----------
+        interim : mbi.GraphicalModel
+            Interim model based on one-way marginals only.
+        pair : tuple of str
+            Column pair to be assessed.
+
+        Returns
+        -------
+        weight : float
+            Importance of the pair given as the negative of the L1 norm
+            between the observed and estimated marginals for the pair.
+        """
+
+        estimate = interim.project(pair).datavector()
+        marginal = self.get_marginal(pair)
+        weight = -np.linalg.norm(marginal - estimate, 1)
+
+        return weight
