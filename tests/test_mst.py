@@ -1,5 +1,6 @@
 """Tests for the `centhesus.mst` module."""
 
+import itertools
 import string
 from unittest import mock
 
@@ -20,6 +21,7 @@ from centhesus import MST
 from .strategies import (
     st_api_parameters,
     st_feature_metadata_parameters,
+    st_importances,
     st_single_marginals,
 )
 
@@ -292,3 +294,28 @@ def test_calculate_importance_of_pair_failed_call(params):
     interim.project.assert_not_called()
     interim.project.return_value.datavector.assert_not_called()
     get_marginal.assert_called_once_with(clique)
+
+
+@settings(deadline=None)
+@given(st_importances())
+def test_calculate_importances(params):
+    """Test that a set of importances can be calculated."""
+
+    population_type, area_type, dimensions, domain, importances = params
+    mst = mocked_mst(population_type, area_type, dimensions, domain=domain)
+
+    with mock.patch("centhesus.mst.MST._calculate_importance_of_pair") as calc:
+        calc.side_effect = importances
+        weights = mst._calculate_importances("interim")
+
+    pairs = list(itertools.combinations(domain, 2))
+    calc.call_count == len(pairs)
+    call_args = [call.args for call in calc.call_args_list]
+    assert set(call_args) == set(("interim", pair) for pair in pairs)
+
+    assert isinstance(weights, dict)
+    assert set(weights.keys()) == set(pairs)
+
+    pairs_execution_order = [pair for _, pair in call_args]
+    for pair, importance in zip(pairs_execution_order, importances):
+        assert weights[pair] == importance

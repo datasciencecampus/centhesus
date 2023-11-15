@@ -1,6 +1,7 @@
 """Custom strategies for testing the package."""
 
 import itertools
+import math
 
 import numpy as np
 import pandas as pd
@@ -10,6 +11,7 @@ from census21api.constants import (
     POPULATION_TYPES,
 )
 from hypothesis import strategies as st
+from mbi import Domain
 
 
 @st.composite
@@ -79,3 +81,24 @@ def st_single_marginals(draw, kind=None):
     marginal["count"] = counts
 
     return population_type, area_type, dimensions, clique, marginal
+
+
+@st.composite
+def st_importances(draw):
+    """Create a domain and set of importances for a test."""
+
+    population_type, area_type, dimensions = draw(st_api_parameters())
+    num = len(dimensions) + 1
+
+    sizes = draw(st.lists(st.integers(2, 10), min_size=num, max_size=num))
+    domain = Domain.fromdict(dict(zip((area_type, *dimensions), sizes)))
+
+    importances = draw(
+        st.lists(
+            st.floats(max_value=0, allow_infinity=False, allow_nan=False),
+            min_size=math.comb(num, 2),
+            max_size=math.comb(num, 2),
+        )
+    )
+
+    return population_type, area_type, dimensions, domain, importances
