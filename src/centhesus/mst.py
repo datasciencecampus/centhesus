@@ -369,4 +369,3 @@ class MST:
         tree = self._find_maximum_spanning_tree(weights)
 
         return list(tree.edges)
-    
