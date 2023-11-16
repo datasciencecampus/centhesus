@@ -4,6 +4,7 @@ import itertools
 
 import dask
 import dask.array as da
+import dask.dataframe as dd
 import networkx as nx
 import numpy as np
 from census21api import CensusAPI
@@ -372,7 +373,7 @@ class MST:
         return list(tree.edges)
 
     @staticmethod
-    def _synthesise_column(marginal, total, prng):
+    def _synthesise_column(marginal, total, prng, chunksize=1e6):
         """
         Sample a column of given length based on a marginal.
 
@@ -380,7 +381,7 @@ class MST:
         marginal very closely. The process for synthesising the column
         is as follows:
 
-        1. Normalise the marginal against the total, and then separate
+        1. Scale the marginal against the total, and then separate
            its integer and fractional components.
         2. If there are insufficient integer counts, distribute the
            additional elements among the integer counts randomly
@@ -401,15 +402,16 @@ class MST:
             Pseudo-random number generator. We use this to distribute
             additional elements in the synthetic column, and to shuffle
             its elements after creation.
+        chunksize : int or float
+            Target size of a chunk or partition in the column.
 
         Returns
         -------
-        column : dask.array.Array
+        column : dask.dataframe.Series
             Synthetic column closely matching the distribution of the
             marginal.
         """
 
-        marginal = marginal.copy()
         marginal *= total / marginal.sum()
         fractions, integers = np.modf(marginal)
 
@@ -421,11 +423,52 @@ class MST:
             ).compute()
             integers[idx] += 1
 
-        uniques = da.arange(marginal.size)
+        uniques = np.arange(integers.size)
         repeats = (
-            da.repeat(uniques[i : i + 1], count)
-            for i, count in enumerate(integers)
+            unique * da.ones(shape=count, dtype=int)
+            for unique, count in zip(uniques, integers)
         )
-        values = da.concatenate(repeats)
 
-        return prng.permutation(values)
+        values = da.concatenate(repeats).rechunk(chunksize)
+        column = dd.from_dask_array(prng.permutation(values))
+
+        return column
+
+    @staticmethod
+    def _synthesise_column_in_group(
+        group, column, marginal, prng, chunksize=1e6
+    ):
+        """
+        Synthesise a column inside a group-by operation.
+
+        This operation is used for synthesising columns that depend on
+        those that have already been synthesised. By performing this
+        synthesis in a group-by operation, we ensure a close matching to
+        the marginal distribution estimated by the graphical model given
+        what has already been synthesised.
+
+        Parameters
+        ----------
+        group : pandas.DataFrame
+            Group data frame on which to operate.
+        column : str
+            Name of column to be synthesised.
+        marginal : np.ndarray
+            Marginal estimated from the graphical model for the column
+            and all the columns it depends on.
+        prng : dask.array.random.Generator
+            Pseudo-random number generator. Used to synthesise the
+            column within this group.
+
+        Returns
+        -------
+        group :
+            Group with new synthetic column.
+        """
+
+        idx = group.name
+        group[column] = MST._synthesise_column(
+            marginal[idx], group.shape[0], prng, chunksize
+        ).compute()
+
+        return group
