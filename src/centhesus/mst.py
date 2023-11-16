@@ -3,6 +3,7 @@
 import itertools
 
 import dask
+import dask.array as da
 import networkx as nx
 import numpy as np
 from census21api import CensusAPI
@@ -369,3 +370,62 @@ class MST:
         tree = self._find_maximum_spanning_tree(weights)
 
         return list(tree.edges)
+
+    @staticmethod
+    def _synthesise_column(marginal, total, prng):
+        """
+        Sample a column of given length based on a marginal.
+
+        Columns are synthesised to match the distribution of the
+        marginal very closely. The process for synthesising the column
+        is as follows:
+
+        1. Normalise the marginal against the total, and then separate
+           its integer and fractional components.
+        2. If there are insufficient integer counts, distribute the
+           additional elements among the integer counts randomly
+           using the fractional component as a weight. In this way, the
+           difference between the normalised marginal and the final
+           counts in the synthetic data will be at most one.
+        3. Create an array by repeating the index of the marginal
+           according to the adjusted integer counts.
+        4. Permute the array to give a synthetic column.
+
+        Parameters
+        ----------
+        marginal : np.ndarray
+            Marginal counts from which to synthesise the column.
+        total : int
+            Number of elements in the synthesised column.
+        prng : dask.array.random.Generator
+            Pseudo-random number generator. We use this to distribute
+            additional elements in the synthetic column, and to shuffle
+            its elements after creation.
+
+        Returns
+        -------
+        column : dask.array.Array
+            Synthetic column closely matching the distribution of the
+            marginal.
+        """
+
+        marginal = marginal.copy()
+        marginal *= total / marginal.sum()
+        fractions, integers = np.modf(marginal)
+
+        integers = integers.astype(int)
+        extra = total - integers.sum()
+        if extra > 0:
+            idx = prng.choice(
+                marginal.size, extra, False, fractions / fractions.sum()
+            ).compute()
+            integers[idx] += 1
+
+        uniques = da.arange(marginal.size)
+        repeats = (
+            da.repeat(uniques[i : i + 1], count)
+            for i, count in enumerate(integers)
+        )
+        values = da.concatenate(repeats)
+
+        return prng.permutation(values)
