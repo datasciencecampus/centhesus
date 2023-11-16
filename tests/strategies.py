@@ -150,7 +150,7 @@ def st_group_marginals(draw):
     """Create a group and matching marginal for a test."""
 
     num_rows_in_group = draw(st.integers(10, 50))
-    group = pd.DataFrame({"a": [0] * num_rows_in_group}).groupby("a")
+    group = pd.DataFrame({"a": [0] * num_rows_in_group})
 
     marginal = draw(
         st.lists(

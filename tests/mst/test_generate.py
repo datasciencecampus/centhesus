@@ -52,7 +52,11 @@ def test_synthesise_column(marginal, total):
 
 @given(st_group_marginals())
 def test_synthesise_group(params):
-    """Test that a dependent column can be synthesised in groups."""
+    """
+    Test that a dependent column can be synthesised in groups.
+
+    We only test the case where there is a single group currently.
+    """
 
     group, marginal = params
 
