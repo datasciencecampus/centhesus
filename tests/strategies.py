@@ -143,3 +143,22 @@ def st_subgraphs(draw):
     graph.add_edges_from(edges)
 
     return population_type, area_type, dimensions, domain, graph
+
+
+@st.composite
+def st_group_marginals(draw):
+    """Create a group and matching marginal for a test."""
+
+    num_rows_in_group = draw(st.integers(10, 50))
+    group = pd.DataFrame({"a": [0] * num_rows_in_group})
+    object.__setattr__(group, "name", 0)
+
+    marginal = draw(
+        st.lists(
+            st.integers(0, 3),
+            min_size=num_rows_in_group,
+            max_size=num_rows_in_group,
+        )
+    )
+
+    return group, marginal
