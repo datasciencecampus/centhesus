@@ -13,7 +13,7 @@ from hypothesis.extra.numpy import arrays
 
 from centhesus import MST
 
-from ..strategies import st_group_marginals
+from ..strategies import st_existing_new_columns
 
 
 @settings(deadline=None)
@@ -50,30 +50,37 @@ def test_synthesise_column(marginal, total):
         )
 
 
-@given(st_group_marginals())
+@given(st_existing_new_columns())
 def test_synthesise_group(params):
-    """
-    Test that a dependent column can be synthesised in groups.
+    """Test that a dependent column can be synthesised in groups."""
 
-    We only test the case where there is a single group currently.
-    """
+    existing, new = params
 
-    group, marginal = params
-
+    num_groups = existing["a"].nunique()
     column, prng = "foo", da.random.default_rng(0)
+    empty_marginal = [[]] * num_groups
+
     with mock.patch("centhesus.mst.MST._synthesise_column") as synth:
-        synth.return_value.compute.return_value = marginal
+        synth.return_value.compute.return_value = new
         synthetic = (
-            group.copy()
+            existing.copy()
             .groupby("a")
-            .apply(MST._synthesise_column_in_group, column, [[]], prng)
+            .apply(
+                MST._synthesise_column_in_group, column, empty_marginal, prng
+            )
         )
 
     assert isinstance(synthetic, pd.DataFrame)
-    assert synthetic.shape[0] == group.shape[0]
-    assert synthetic.columns.to_list() == [*group.columns.to_list(), column]
+    assert synthetic.shape[0] == existing.shape[0]
+    assert synthetic.columns.to_list() == [*existing.columns.to_list(), column]
 
-    assert np.array_equal(synthetic[column], marginal)
+    assert np.array_equal(synthetic[column], new * num_groups)
 
-    synth.assert_called_once_with([], group.shape[0], prng, 1e6)
-    synth.return_value.compute.called_once_with()
+    assert synth.call_count == num_groups
+    for i, call in enumerate(synth.call_args_list):
+        assert call.args == ([], (existing["a"] == i).sum(), prng, 1e6)
+
+    assert synth.return_value.compute.call_count == num_groups
+    assert (
+        synth.return_value.compute.call_args_list == [mock.call()] * num_groups
+    )

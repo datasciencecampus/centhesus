@@ -146,13 +146,16 @@ def st_subgraphs(draw):
 
 
 @st.composite
-def st_group_marginals(draw):
-    """Create a group and matching marginal for a test."""
+def st_existing_new_columns(draw):
+    """Create an existing column and a new one for a test."""
 
+    num_groups = draw(st.integers(1, 3))
     num_rows_in_group = draw(st.integers(10, 50))
-    group = pd.DataFrame({"a": [0] * num_rows_in_group})
+    existing = pd.DataFrame(
+        {"a": [i for i in range(num_groups) for _ in range(num_rows_in_group)]}
+    )
 
-    marginal = draw(
+    new = draw(
         st.lists(
             st.integers(0, 3),
             min_size=num_rows_in_group,
@@ -160,4 +163,4 @@ def st_group_marginals(draw):
         )
     )
 
-    return group, marginal
+    return existing, new
