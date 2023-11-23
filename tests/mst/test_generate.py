@@ -16,6 +16,31 @@ from centhesus import MST
 from ..strategies import st_existing_new_columns
 
 
+@given(
+    st.floats(1, 100),
+    st.lists(st.text(), min_size=1, max_size=10),
+    st.lists(st.tuples(st.text(), st.text()), min_size=1, max_size=5),
+    st.one_of((st.just(None), st.integers(1, 100))),
+    st.integers(0, 10),
+)
+def test_setup_generate(total, elimination_order, cliques_, nrows, seed):
+    """Test that generation can be set up correctly."""
+
+    model = mock.MagicMock()
+    model.total = total
+    model.elimination_order = elimination_order
+    model.cliques = cliques_
+
+    nrows, prng, cliques, column, order = MST._setup_generate(model, nrows, seed)
+
+    assert isinstance(nrows, int)
+    assert nrows == total or int(model.total)
+    assert isinstance(prng, da.random.Generator)
+    assert cliques == [set(clique) for clique in cliques_]
+    assert column == elimination_order[-1]
+    assert order == elimination_order[-2::-1]
+
+
 @settings(deadline=None)
 @given(
     arrays(
@@ -51,7 +76,7 @@ def test_synthesise_column(marginal, total):
 
 
 @given(st_existing_new_columns())
-def test_synthesise_group(params):
+def test_synthesise_column_in_group(params):
     """Test that a dependent column can be synthesised in groups."""
 
     existing, new = params
@@ -61,7 +86,7 @@ def test_synthesise_group(params):
     empty_marginal = [[]] * num_groups
 
     with mock.patch("centhesus.mst.MST._synthesise_column") as synth:
-        synth.return_value.compute.return_value = new
+        synth.return_value = new
         synthetic = (
             existing.copy()
             .groupby("a")
@@ -80,7 +105,4 @@ def test_synthesise_group(params):
     for i, call in enumerate(synth.call_args_list):
         assert call.args == ([], (existing["a"] == i).sum(), prng, 1e6)
 
-    assert synth.return_value.compute.call_count == num_groups
-    assert (
-        synth.return_value.compute.call_args_list == [mock.call()] * num_groups
-    )
+    assert synth.call_count == num_groups
