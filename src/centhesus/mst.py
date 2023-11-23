@@ -204,14 +204,14 @@ class MST:
 
         tasks = []
         for clique in cliques:
-            get_marginal = dask.delayed(lambda x: (x, self.get_marginal(x)))
-            tasks.append(get_marginal(clique))
+            marginal = dask.delayed(self.get_marginal)(clique)
+            tasks.append(marginal)
 
-        indexed_marginals = dask.compute(*tasks)
+        marginals = dask.compute(*tasks)
 
         measurements = [
-            (sparse.eye(marginal.size), marginal, 1e-12, clique)
-            for clique, marginal in indexed_marginals
+            (sparse.eye(marginal.size), marginal, 1, clique)
+            for clique, marginal in zip(cliques, marginals)
             if marginal is not None
         ]
 
@@ -294,16 +294,16 @@ class MST:
         pairs = list(itertools.combinations(self.domain.attrs, 2))
         tasks = []
         for pair in pairs:
-            calculate_importance = dask.delayed(
-                lambda x: (x, self._calculate_importance_of_pair(interim, x))
+            importance = dask.delayed(self._calculate_importance_of_pair)(
+                interim, pair
             )
-            tasks.append(calculate_importance(pair))
+            tasks.append(importance)
 
-        indexed_importances = dask.compute(*tasks)
+        importances = dask.compute(*tasks)
 
         weights = {
             pair: importance
-            for pair, importance in indexed_importances
+            for pair, importance in zip(pairs, importances)
             if importance is not None
         }
 
@@ -373,7 +373,41 @@ class MST:
         return list(tree.edges)
 
     @staticmethod
-    def _synthesise_column(marginal, total, prng, chunksize=1e6):
+    def _setup_generate(model, nrows, seed):
+        """
+        Set everything up for the generation of the synthetic data.
+
+        Parameters
+        ----------
+        model : mbi.GraphicalModel
+            Model from which the synthetic data will be drawn.
+        nrows : int or None
+            Number of rows in the synthetic data. Inferred from `model`
+            if `None`.
+        seed : int or None
+            Pseudo-random seed. If `None`, randomness not reproducible.
+
+        Returns
+        -------
+        nrows : int
+            Number of rows to generate.
+        prng : dask.array.random.Generator
+            Pseudo-random number generator.
+        cliques : list of set
+            Cliques identified by the graphical model.
+        order : list of str
+            Order in which to synthesise the columns.
+        """
+
+        nrows = int(model.total) if nrows is None else nrows
+        prng = da.random.default_rng(seed)
+        cliques = [set(clique) for clique in model.cliques]
+        column, *order = model.elimination_order[::-1]
+
+        return nrows, prng, cliques, column, order
+
+    @staticmethod
+    def _synthesise_column(marginal, nrows, prng, chunksize=1e6):
         """
         Sample a column of given length based on a marginal.
 
@@ -381,8 +415,8 @@ class MST:
         marginal very closely. The process for synthesising the column
         is as follows:
 
-        1. Scale the marginal against the total, and then separate
-           its integer and fractional components.
+        1. Scale the marginal against the total count required, and then
+           separate its integer and fractional components.
         2. If there are insufficient integer counts, distribute the
            additional elements among the integer counts randomly
            using the fractional component as a weight. In this way, the
@@ -396,7 +430,7 @@ class MST:
         ----------
         marginal : np.ndarray
             Marginal counts from which to synthesise the column.
-        total : int
+        nrows : int
             Number of elements in the synthesised column.
         prng : dask.array.random.Generator
             Pseudo-random number generator. We use this to distribute
@@ -412,11 +446,11 @@ class MST:
             marginal.
         """
 
-        marginal *= total / marginal.sum()
+        marginal *= nrows / marginal.sum()
         fractions, integers = np.modf(marginal)
 
         integers = integers.astype(int)
-        extra = total - integers.sum()
+        extra = nrows - integers.sum()
         if extra > 0:
             idx = prng.choice(
                 marginal.size, extra, False, fractions / fractions.sum()
@@ -469,6 +503,121 @@ class MST:
         idx = group.name
         group[column] = MST._synthesise_column(
             marginal[idx], group.shape[0], prng, chunksize
-        ).compute()
+        )
 
         return group
+
+    def _synthesise_first_column(self, model, column, nrows, prng):
+        """
+        Sample the first column from the model as a data frame.
+
+        Parameters
+        ----------
+        model : mbi.GraphicalModel
+            Model from which to synthesise the column.
+        column : str
+            Name of the column to synthesise.
+        nrows : int
+            Number of rows to generate.
+        prng : dask.array.random.Generator
+            Pseudo-random number generator.
+
+        Returns
+        -------
+        data : dask.dataframe.DataFrame
+            Data frame containing the first synthetic column.
+        """
+
+        marginal = model.project([column]).datavector(flatten=False)
+        data = self._synthesise_column(marginal, nrows, prng).to_frame(
+            name=column
+        )
+
+        return data
+
+    @staticmethod
+    def _find_prerequisite_columns(column, cliques, used):
+        """
+        Find the columns that inform the synthesis of a new column.
+
+        Parameters
+        ----------
+        column : str
+            Name of column to be synthesised.
+        cliques : list of set
+            Cliques identified by the graphical model.
+        used : set of str
+            Names of columns that have already been synthesised.
+
+        Returns
+        -------
+        prerequisites : tuple of str
+            All columns needed to synthesise the new column.
+        """
+
+        member_of_cliques = [clique for clique in cliques if column in clique]
+        prerequisites = used.intersection(set.union(*member_of_cliques))
+
+        return tuple(prerequisites)
+
+    def generate(self, model, nrows=None, seed=None):
+        """
+        Generate a synthetic dataset from the estimated model.
+
+        Columns are synthesised in the order determined by the graphical
+        model. With each column after the first, we search for all the
+        columns on which it depends according to the model that have
+        been synthesised already.
+
+        Parameters
+        ----------
+        model : mbi.GraphicalModel
+            Model from which to draw synthetic data. This model should
+            be fit to all the marginal tables you care about.
+        nrows : int, optional
+            Number of rows in the synthetic dataset. If not specified,
+            the length of the dataset is inferred from the model.
+        seed : int, optional
+            Seed for pseudo-random number generation. If not specified,
+            the results will not be reproducible.
+
+        Returns
+        -------
+        data : dask.dataframe.DataFrame
+            Data frame containing the synthetic data. We use Dask to
+            allow for larger-than-memory datasets. As such, it is lazily
+            executed.
+        """
+
+        nrows, prng, cliques, column, order = self._setup_generate(
+            model, nrows, seed
+        )
+        data = self._synthesise_first_column(model, column, nrows, prng)
+        used = {column}
+
+        for column in order:
+            clique = self._find_prerequisite_columns(column, cliques, used)
+            used.add(column)
+
+            marginal = model.project(clique + (column,)).datavector(
+                flatten=False
+            )
+
+            if len(clique) >= 1:
+                data = (
+                    data.groupby(list(clique))
+                    .apply(
+                        self._synthesise_column_in_group,
+                        column,
+                        marginal,
+                        prng,
+                        meta={**data.dtypes, column: int},
+                    )
+                    .reset_index(drop=True)
+                )
+            else:
+                data[column] = self._synthesise_column(marginal, nrows, prng)
+
+        data = data.repartition("100MB")
+
+        return data

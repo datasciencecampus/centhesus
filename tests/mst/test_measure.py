@@ -73,5 +73,5 @@ def test_measure(params, num_cliques):
         assert ident.shape == (marg.size,) * 2
         assert ident.sum() == marg.size
         assert marg.equals(table)
-        assert noise == 1e-12
+        assert noise == 1
         assert cliq == clique
