@@ -31,7 +31,9 @@ def test_setup_generate(total, elimination_order, cliques_, nrows, seed):
     model.elimination_order = elimination_order
     model.cliques = cliques_
 
-    nrows, prng, cliques, column, order = MST._setup_generate(model, nrows, seed)
+    nrows, prng, cliques, column, order = MST._setup_generate(
+        model, nrows, seed
+    )
 
     assert isinstance(nrows, int)
     assert nrows == total or int(model.total)
@@ -106,3 +108,33 @@ def test_synthesise_column_in_group(params):
         assert call.args == ([], (existing["a"] == i).sum(), prng, 1e6)
 
     assert synth.call_count == num_groups
+
+
+@settings(deadline=None)
+@given(
+    arrays(
+        int,
+        st.integers(2, 10),
+        elements=st.integers(0, 50),
+    ),
+    st.text(min_size=1),
+    st.integers(10, 100),
+)
+def test_synthesise_first_column(values, column, nrows):
+    """Test that a single column frame can be created."""
+
+    prng = da.random.default_rng(0)
+    model = mock.MagicMock()
+    model.project.return_value.datavector.return_value = "marginal"
+
+    with mock.patch("centhesus.mst.MST._synthesise_column") as synth:
+        synth.return_value = dd.from_array(values)
+        first = MST._synthesise_first_column(model, column, nrows, prng)
+
+    assert isinstance(first, dd.DataFrame)
+    assert first.columns.to_list() == [column]
+    assert np.array_equal(first[column].compute(), values)
+
+    model.project.assert_called_once_with([column])
+    model.project.return_value.datavector.called_once_with(flatten=False)
+    synth.assert_called_once_with("marginal", nrows, prng)

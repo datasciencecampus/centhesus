@@ -507,7 +507,8 @@ class MST:
 
         return group
 
-    def _synthesise_first_column(self, model, column, nrows, prng):
+    @staticmethod
+    def _synthesise_first_column(model, column, nrows, prng):
         """
         Sample the first column from the model as a data frame.
 
@@ -529,7 +530,7 @@ class MST:
         """
 
         marginal = model.project([column]).datavector(flatten=False)
-        data = self._synthesise_column(marginal, nrows, prng).to_frame(
+        data = MST._synthesise_column(marginal, nrows, prng).to_frame(
             name=column
         )
 
