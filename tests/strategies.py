@@ -12,6 +12,7 @@ from census21api.constants import (
     DIMENSIONS_BY_POPULATION_TYPE,
     POPULATION_TYPES,
 )
+from hypothesis import assume
 from hypothesis import strategies as st
 from mbi import Domain
 
@@ -164,3 +165,36 @@ def st_existing_new_columns(draw):
     )
 
     return existing, new
+
+
+@st.composite
+def st_prerequisite_columns(draw):
+    """Create a column, set of cliques and a used set for a test."""
+
+    columns = draw(
+        st.sets(
+            st.sampled_from(DIMENSIONS_BY_POPULATION_TYPE["UR_HH"]), min_size=2
+        ).map(list)
+    )
+    column = draw(st.sampled_from(columns))
+
+    combinations = [
+        *itertools.combinations(columns, 2),
+        *itertools.combinations(columns, 3),
+    ]
+
+    cliques = draw(
+        st.lists(
+            st.sampled_from(combinations).map(set), min_size=len(columns) - 1
+        )
+    )
+    assume(any(column in clique for clique in cliques))
+
+    used = draw(
+        st.sets(
+            st.sampled_from([col for col in columns if col != column]),
+            min_size=1,
+        )
+    )
+
+    return column, cliques, used

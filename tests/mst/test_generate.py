@@ -13,7 +13,7 @@ from hypothesis.extra.numpy import arrays
 
 from centhesus import MST
 
-from ..strategies import st_existing_new_columns
+from ..strategies import st_existing_new_columns, st_prerequisite_columns
 
 
 @given(
@@ -138,3 +138,21 @@ def test_synthesise_first_column(values, column, nrows):
     model.project.assert_called_once_with([column])
     model.project.return_value.datavector.called_once_with(flatten=False)
     synth.assert_called_once_with("marginal", nrows, prng)
+
+
+@given(st_prerequisite_columns())
+def test_find_prerequisite_columns(params):
+    """Test we can find all the columns on which another depends."""
+
+    column, cliques, used = params
+
+    prerequisites = MST._find_prerequisite_columns(column, cliques, used)
+
+    expected = set(
+        other
+        for clique in cliques
+        for other in clique
+        if column in clique and other != column and other in used
+    )
+    assert isinstance(prerequisites, tuple)
+    assert set(prerequisites) == expected
