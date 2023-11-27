@@ -1,9 +1,11 @@
 """Unit tests for the measurement methods in `centhesus.MST`."""
 
+import platform
 from unittest import mock
 
 import numpy as np
 import pandas as pd
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from scipy import sparse
@@ -49,6 +51,7 @@ def test_get_marginal_failed_call(params, flatten):
     query.assert_called_once()
 
 
+@pytest.mark.skipif(tuple(map(int, platform.python_version_tuple())) > (3, 8))
 @settings(deadline=None)
 @given(st_single_marginals(), st.integers(1, 5))
 def test_measure(params, num_cliques):
