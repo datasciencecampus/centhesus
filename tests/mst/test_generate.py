@@ -78,7 +78,7 @@ def test_synthesise_column(marginal, total):
 
 
 @given(st_existing_new_columns())
-def test_synthesise_column_in_group(params):
+def test_synthesise_column_in_group_by_partition(params):
     """Test that a dependent column can be synthesised in groups."""
 
     existing, new = params
@@ -89,12 +89,12 @@ def test_synthesise_column_in_group(params):
 
     with mock.patch("centhesus.mst.MST._synthesise_column") as synth:
         synth.return_value = new
-        synthetic = (
-            existing.copy()
-            .groupby("a")
-            .apply(
-                MST._synthesise_column_in_group, column, empty_marginal, prng
-            )
+        synthetic = MST._synthesise_column_in_group_by_partition(
+            existing.copy(),
+            ["a"],
+            column,
+            empty_marginal,
+            prng,
         )
 
     assert isinstance(synthetic, pd.DataFrame)
@@ -156,3 +156,80 @@ def test_find_prerequisite_columns(params):
     )
     assert isinstance(prerequisites, tuple)
     assert set(prerequisites) == expected
+
+
+@given(
+    st.integers(1, 100),
+    st.lists(st.text(), min_size=2, max_size=10, unique=True),
+)
+def test_generate(nrows, params):
+    """Test that generation can be executed correctly."""
+
+    column, *order = params
+
+    prng = da.random.default_rng(0)
+
+    data = mock.MagicMock()
+    data.dtypes = {"data": "dtypes"}
+    data.map_partitions.return_value = data
+    data.repartition.return_value = data
+
+    marginal = mock.MagicMock()
+
+    model = mock.MagicMock()
+    model.project.return_value.datavector.return_value = marginal
+
+    with mock.patch("centhesus.mst.MST._setup_generate") as setup, mock.patch(
+        "centhesus.mst.MST._synthesise_first_column"
+    ) as first, mock.patch(
+        "centhesus.mst.MST._find_prerequisite_columns"
+    ) as find, mock.patch(
+        "centhesus.mst.MST._synthesise_column"
+    ) as synth:
+        setup.return_value = (nrows, prng, "cliques", column, order)
+        first.return_value = data
+        find.return_value = ("prerequisites",)
+        synth.return_value = "independent"
+
+        synthetic = MST.generate(model, nrows)
+
+    setup.assert_called_once_with(model, nrows, None)
+    first.assert_called_once_with(model, column, nrows, prng)
+
+    used = {column}
+    num_subsequent_columns = len(order)
+    assert find.call_count == num_subsequent_columns
+    for call, col in zip(find.call_args_list, order):
+        assert tuple(call.args[:-1]) == (col, "cliques")
+        used.add(col)
+
+    assert used == set((column, *order))
+
+    assert model.project.call_count == num_subsequent_columns
+    for call, col in zip(model.project.call_args_list, order):
+        assert call.args == (("prerequisites", col),)
+
+    assert (
+        model.project.return_value.datavector.call_count
+        == num_subsequent_columns
+    )
+    for call in model.project.return_value.datavector.call_args_list:
+        assert call.args == ()
+        assert call.kwargs == {"flatten": False}
+
+    assert data.map_partitions.call_count == num_subsequent_columns
+    for call, col in zip(data.map_partitions.call_args_list, order):
+        assert call.args == (
+            MST._synthesise_column_in_group_by_partition,
+            ("prerequisites",),
+            col,
+            marginal,
+            prng,
+        )
+        assert call.kwargs == {"meta": {"data": "dtypes", col: int}}
+
+    synth.assert_not_called()
+
+    data.repartition.assert_called_once_with("100MB")
+
+    assert synthetic is data

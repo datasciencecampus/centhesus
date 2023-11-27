@@ -469,11 +469,11 @@ class MST:
         return column
 
     @staticmethod
-    def _synthesise_column_in_group(
-        group, column, marginal, prng, chunksize=1e6
+    def _synthesise_column_in_group_by_partition(
+        partition, clique, column, marginal, prng, chunksize=1e6
     ):
         """
-        Synthesise a column inside a group-by operation.
+        Synthesise a column inside a groupby-apply over the partitions.
 
         This operation is used for synthesising columns that depend on
         those that have already been synthesised. By performing this
@@ -481,31 +481,48 @@ class MST:
         the marginal distribution estimated by the graphical model given
         what has already been synthesised.
 
+        Mapping the groupby-apply operation across the partitions allows
+        even very large datasets (10M+) to be created without
+        out-of-memory errors.
+
         Parameters
         ----------
-        group : pandas.DataFrame
-            Group data frame on which to operate.
+        partition : dask.dataframe.DataFrame
+            Partition of the data frame on which to operate.
+        clique : list of str
+            Prerequisite columns by which to group the operation.
         column : str
-            Name of column to be synthesised.
+            Name of the column to be synthesised.
         marginal : np.ndarray
             Marginal estimated from the graphical model for the column
-            and all the columns it depends on.
+            and its prerequisites.
         prng : dask.array.random.Generator
             Pseudo-random number generator. Used to synthesise the
-            column within this group.
+            column within groups in this partition.
 
         Returns
         -------
-        group :
-            Group with new synthetic column.
+        partition : dask.dataframe.DataFrame
+            Partition with new synthetic column.
         """
 
-        idx = group.name
-        group[column] = MST._synthesise_column(
-            marginal[idx], group.shape[0], prng, chunksize
+        def synthesise_in_group(group):
+            """Synthesise a column within a groupby-apply operation."""
+
+            idx = group.name
+            group[column] = MST._synthesise_column(
+                marginal[idx], group.shape[0], prng, chunksize
+            )
+
+            return group
+
+        partition = (
+            partition.groupby(list(clique))
+            .apply(synthesise_in_group)
+            .reset_index(drop=True)
         )
 
-        return group
+        return partition
 
     @staticmethod
     def _synthesise_first_column(model, column, nrows, prng):
@@ -561,7 +578,8 @@ class MST:
 
         return tuple(prerequisites)
 
-    def generate(self, model, nrows=None, seed=None):
+    @staticmethod
+    def generate(model, nrows=None, seed=None):
         """
         Generate a synthetic dataset from the estimated model.
 
@@ -590,34 +608,33 @@ class MST:
             executed.
         """
 
-        nrows, prng, cliques, column, order = self._setup_generate(
+        nrows, prng, cliques, column, order = MST._setup_generate(
             model, nrows, seed
         )
-        data = self._synthesise_first_column(model, column, nrows, prng)
+        data = MST._synthesise_first_column(model, column, nrows, prng)
         used = {column}
 
         for column in order:
-            clique = self._find_prerequisite_columns(column, cliques, used)
+            prerequisites = MST._find_prerequisite_columns(
+                column, cliques, used
+            )
             used.add(column)
 
-            marginal = model.project(clique + (column,)).datavector(
+            marginal = model.project(prerequisites + (column,)).datavector(
                 flatten=False
             )
 
-            if len(clique) >= 1:
-                data = (
-                    data.groupby(list(clique))
-                    .apply(
-                        self._synthesise_column_in_group,
-                        column,
-                        marginal,
-                        prng,
-                        meta={**data.dtypes, column: int},
-                    )
-                    .reset_index(drop=True)
+            if len(prerequisites) >= 1:
+                data = data.map_partitions(
+                    MST._synthesise_column_in_group_by_partition,
+                    prerequisites,
+                    column,
+                    marginal,
+                    prng,
+                    meta={**data.dtypes, column: int},
                 )
             else:
-                data[column] = self._synthesise_column(marginal, nrows, prng)
+                data[column] = MST._synthesise_column(marginal, nrows, prng)
 
         data = data.repartition("100MB")
 
