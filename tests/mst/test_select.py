@@ -59,7 +59,10 @@ def test_calculate_importance_of_pair_failed_call(params):
     get_marginal.assert_called_once_with(clique)
 
 
-@pytest.mark.skipif(tuple(map(int, platform.python_version_tuple())) > (3, 8))
+@pytest.mark.skipif(
+    tuple(map(int, platform.python_version_tuple())) < (3, 9),
+    reason="Requires Python 3.9+",
+)
 @settings(deadline=None)
 @given(st_importances())
 def test_calculate_importances(params):
@@ -69,7 +72,6 @@ def test_calculate_importances(params):
     mst = mocked_mst(population_type, area_type, dimensions, domain=domain)
 
     with mock.patch("centhesus.mst.MST._calculate_importance_of_pair") as calc:
-        mst._calculate_importances = calc
         calc.side_effect = importances
         weights = mst._calculate_importances("interim")
 
