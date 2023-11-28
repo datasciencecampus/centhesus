@@ -3,6 +3,7 @@
 import platform
 from unittest import mock
 
+import dask
 import numpy as np
 import pandas as pd
 import pytest
@@ -63,7 +64,9 @@ def test_measure(params, num_cliques):
     population_type, area_type, dimensions, clique, table = params
     mst = mocked_mst(population_type, area_type, dimensions)
 
-    with mock.patch("centhesus.mst.MST.get_marginal") as get_marginal:
+    with mock.patch(
+        "centhesus.mst.MST.get_marginal"
+    ) as get_marginal, dask.config.set(scheduler="synchronous"):
         get_marginal.return_value = table
         measurements = mst.measure([clique] * num_cliques)
 

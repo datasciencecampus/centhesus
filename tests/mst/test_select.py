@@ -4,6 +4,7 @@ import itertools
 import platform
 from unittest import mock
 
+import dask
 import networkx as nx
 import pytest
 from hypothesis import given, settings
@@ -71,7 +72,9 @@ def test_calculate_importances(params):
     population_type, area_type, dimensions, domain, importances = params
     mst = mocked_mst(population_type, area_type, dimensions, domain=domain)
 
-    with mock.patch("centhesus.mst.MST._calculate_importance_of_pair") as calc:
+    with mock.patch(
+        "centhesus.mst.MST._calculate_importance_of_pair"
+    ) as calc, dask.config.set(scheduler="synchronous"):
         calc.side_effect = importances
         weights = mst._calculate_importances("interim")
 
