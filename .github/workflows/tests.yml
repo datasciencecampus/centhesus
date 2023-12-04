@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "dev*"
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        py-major: [3]
+        py-minor: [8, 11]
+    env:
+      python-version: |
+        ${{ format('{0}.{1}', matrix.py-major, matrix.py-minor) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Set up Python ${{ env.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.python-version }}
+          cache: "pip"
+      - name: Update pip and install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[test]" pytest-sugar
+      - name: Run tests (<3.9)
+        if: matrix.py-minor < 9
+        run: |
+          python -m pytest --cov=centhesus tests
+      - name: Run tests (>=3.11)
+        if: matrix.py-minor >= 11
+        run: |
+          python -m pytest --cov=centhesus --cov-fail-under=100 tests
+      - name: Install and run linters
+        if: matrix.os == 'ubuntu-latest' && matrix.py-minor == 11
+        run: |
+          python -m pip install ".[lint]"
+          python -m black --check .
+          python -m ruff .

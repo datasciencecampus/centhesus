@@ -1,0 +1,293 @@
+"""Unit tests for the generation methods of `centhesus.MST`."""
+
+from unittest import mock
+
+import dask
+import dask.array as da
+import dask.dataframe as dd
+import numpy as np
+import pandas as pd
+from hypothesis import assume, given, settings
+from hypothesis import strategies as st
+from hypothesis.extra.numpy import arrays
+
+from centhesus import MST
+
+from ..strategies import st_existing_new_columns, st_prerequisite_columns
+
+
+@given(
+    st.floats(1, 100),
+    st.lists(st.text(), min_size=1, max_size=10),
+    st.lists(st.tuples(st.text(), st.text()), min_size=1, max_size=5),
+    st.one_of((st.just(None), st.integers(1, 100))),
+    st.integers(0, 10),
+)
+def test_setup_generate(total, elimination_order, cliques_, nrows, seed):
+    """Test that generation can be set up correctly."""
+
+    model = mock.MagicMock()
+    model.total = total
+    model.elimination_order = elimination_order
+    model.cliques = cliques_
+
+    nrows, prng, cliques, column, order = MST._setup_generate(
+        model, nrows, seed
+    )
+
+    assert isinstance(nrows, int)
+    assert nrows == total or int(model.total)
+    assert isinstance(prng, da.random.Generator)
+    assert cliques == [set(clique) for clique in cliques_]
+    assert column == elimination_order[-1]
+    assert order == elimination_order[-2::-1]
+
+
+@settings(deadline=None)
+@given(
+    arrays(
+        float,
+        st.integers(2, 10),
+        elements=st.one_of((st.just(0), st.floats(1, 50))),
+    ),
+    st.integers(10, 100),
+)
+def test_synthesise_column(marginal, total):
+    """Test a column can be synthesised from a marginal."""
+
+    assume(marginal.sum())
+
+    prng = da.random.default_rng(0)
+    column = MST._synthesise_column(marginal, total, prng)
+
+    assert isinstance(column, dd.Series)
+    assert dask.compute(*column.shape) == (total,)
+    assert column.dtype == int
+
+    uniques, counts = dask.compute(
+        *da.unique(column.to_dask_array(lengths=True), return_counts=True)
+    )
+    if len(uniques) == marginal.size:
+        assert np.array_equal(uniques, np.arange(marginal.size))
+        assert np.all(counts - marginal * total / marginal.sum() <= 1)
+    else:
+        assert set(uniques).issubset(range(marginal.size))
+        assert np.all(
+            counts - marginal[uniques] * total / marginal[uniques].sum() <= 1
+        )
+
+
+@given(st_existing_new_columns())
+def test_synthesise_column_in_group_by_partition(params):
+    """Test that a dependent column can be synthesised in groups."""
+
+    existing, new = params
+
+    num_groups = existing["a"].nunique()
+    column, prng = "foo", da.random.default_rng(0)
+    empty_marginal = [[]] * num_groups
+
+    with mock.patch("centhesus.mst.MST._synthesise_column") as synth:
+        synth.return_value = new
+        synthetic = MST._synthesise_column_in_group_by_partition(
+            existing.copy(),
+            ["a"],
+            column,
+            empty_marginal,
+            prng,
+        )
+
+    assert isinstance(synthetic, pd.DataFrame)
+    assert synthetic.shape[0] == existing.shape[0]
+    assert synthetic.columns.to_list() == [*existing.columns.to_list(), column]
+
+    assert np.array_equal(synthetic[column], new * num_groups)
+
+    assert synth.call_count == num_groups
+    for i, call in enumerate(synth.call_args_list):
+        assert call.args == ([], (existing["a"] == i).sum(), prng, 1e6)
+
+    assert synth.call_count == num_groups
+
+
+@settings(deadline=None)
+@given(
+    arrays(
+        int,
+        st.integers(2, 10),
+        elements=st.integers(0, 50),
+    ),
+    st.text(min_size=1),
+    st.integers(10, 100),
+)
+def test_synthesise_first_column(values, column, nrows):
+    """Test that a single column frame can be created."""
+
+    prng = da.random.default_rng(0)
+    model = mock.MagicMock()
+    model.project.return_value.datavector.return_value = "marginal"
+
+    with mock.patch("centhesus.mst.MST._synthesise_column") as synth:
+        synth.return_value = dd.from_array(values)
+        first = MST._synthesise_first_column(model, column, nrows, prng)
+
+    assert isinstance(first, dd.DataFrame)
+    assert first.columns.to_list() == [column]
+    assert np.array_equal(first[column].compute(), values)
+
+    model.project.assert_called_once_with([column])
+    model.project.return_value.datavector.called_once_with(flatten=False)
+    synth.assert_called_once_with("marginal", nrows, prng)
+
+
+@given(st_prerequisite_columns())
+def test_find_prerequisite_columns(params):
+    """Test we can find all the columns on which another depends."""
+
+    column, cliques, used = params
+
+    prerequisites = MST._find_prerequisite_columns(column, cliques, used)
+
+    expected = set(
+        other
+        for clique in cliques
+        for other in clique
+        if column in clique and other != column and other in used
+    )
+    assert isinstance(prerequisites, tuple)
+    assert set(prerequisites) == expected
+
+
+@given(
+    st.integers(1, 100),
+    st.lists(st.text(), min_size=2, max_size=10, unique=True),
+)
+def test_generate(nrows, params):
+    """Test that generation can be executed correctly."""
+
+    column, *order = params
+
+    prng = da.random.default_rng(0)
+
+    data = mock.MagicMock()
+    data.dtypes = {"data": "dtypes"}
+    data.map_partitions.return_value = data
+    data.repartition.return_value = data
+
+    marginal = mock.MagicMock()
+
+    model = mock.MagicMock()
+    model.project.return_value.datavector.return_value = marginal
+
+    with mock.patch("centhesus.mst.MST._setup_generate") as setup, mock.patch(
+        "centhesus.mst.MST._synthesise_first_column"
+    ) as first, mock.patch(
+        "centhesus.mst.MST._find_prerequisite_columns"
+    ) as find, mock.patch(
+        "centhesus.mst.MST._synthesise_column"
+    ) as synth:
+        setup.return_value = (nrows, prng, "cliques", column, order)
+        first.return_value = data
+        find.return_value = ("prerequisites",)
+        synth.return_value = "independent"
+
+        synthetic = MST.generate(model, nrows)
+
+    setup.assert_called_once_with(model, nrows, None)
+    first.assert_called_once_with(model, column, nrows, prng)
+
+    used = {column}
+    num_subsequent_columns = len(order)
+    assert find.call_count == num_subsequent_columns
+    for call, col in zip(find.call_args_list, order):
+        assert tuple(call.args[:-1]) == (col, "cliques")
+        used.add(col)
+
+    assert used == set((column, *order))
+
+    assert model.project.call_count == num_subsequent_columns
+    for call, col in zip(model.project.call_args_list, order):
+        assert call.args == (("prerequisites", col),)
+
+    assert (
+        model.project.return_value.datavector.call_count
+        == num_subsequent_columns
+    )
+    for call in model.project.return_value.datavector.call_args_list:
+        assert call.args == ()
+        assert call.kwargs == {"flatten": False}
+
+    assert data.map_partitions.call_count == num_subsequent_columns
+    for call, col in zip(data.map_partitions.call_args_list, order):
+        assert call.args == (
+            MST._synthesise_column_in_group_by_partition,
+            ("prerequisites",),
+            col,
+            marginal,
+            prng,
+        )
+        assert call.kwargs == {"meta": {"data": "dtypes", col: int}}
+
+    synth.assert_not_called()
+
+    data.repartition.assert_called_once_with("100MB")
+
+    assert synthetic is data
+
+
+@given(
+    st.integers(1, 100),
+    st.lists(st.text(), min_size=2, max_size=10, unique=True),
+)
+def test_generate_with_extra_independents(nrows, params):
+    """Test generation executes with multiple independent columns."""
+
+    column, *order = params
+
+    prng = da.random.default_rng(0)
+
+    data = mock.MagicMock()
+    data.repartition.return_value = data
+
+    model = mock.MagicMock()
+    marginal = mock.MagicMock()
+    model.project.return_value.datavector.return_value = marginal
+
+    with mock.patch("centhesus.mst.MST._setup_generate") as setup, mock.patch(
+        "centhesus.mst.MST._synthesise_first_column"
+    ) as first, mock.patch(
+        "centhesus.mst.MST._find_prerequisite_columns"
+    ) as find, mock.patch(
+        "centhesus.mst.MST._synthesise_column"
+    ) as synth:
+        setup.return_value = (nrows, prng, "cliques", column, order)
+        first.return_value = data
+        find.return_value = ()
+        synth.return_value = "independent"
+
+        synthetic = MST.generate(model, nrows)
+
+    setup.assert_called_once_with(model, nrows, None)
+    first.assert_called_once_with(model, column, nrows, prng)
+
+    num_subsequent_columns = len(order)
+    assert model.project.call_count == num_subsequent_columns
+    for call, col in zip(model.project.call_args_list, order):
+        assert call.args == ((col,),)
+
+    assert (
+        model.project.return_value.datavector.call_count
+        == num_subsequent_columns
+    )
+    for call in model.project.return_value.datavector.call_args_list:
+        assert call.args == ()
+        assert call.kwargs == {"flatten": False}
+
+    assert synth.call_count == num_subsequent_columns
+    for call, col in zip(synth.call_args_list, order):
+        assert call.args == (marginal, nrows, prng)
+        assert hasattr(data, col)
+
+    data.repartition.assert_called_once_with("100MB")
+
+    assert synthetic is data
