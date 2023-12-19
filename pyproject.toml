@@ -1,6 +1,9 @@
 [project]
 name = "centhesus"
-description = "A package for synthesising the 2021 Census from public data"
+description = '''
+    A package for synthesising 2021 England & Wales Census data
+    from public tables
+'''
 authors = [
     {name = "Henry Wilde"},
     {name = "Data Science Campus", email = "datacampus@ons.gov.uk"}
@@ -9,7 +12,7 @@ readme = "README.md"
 requires-python = ">=3.7"
 license = {text = "MIT License"}
 dependencies = [
-    "census21api@git+https://github.com/MichaelaLawrenceONS/Census21_CACD_Wrapper@dev-0.0.1",
+    "census21api@git+https://github.com/datasciencecampus/census21api",
     "dask[complete]",
     "numpy",
     "pandas",
